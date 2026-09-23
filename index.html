@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Student check-in and check-out system">
+  <title>Check In / Out Students</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    /* ============================================================================
+       1. CSS VARIABLES
+       ============================================================================ */
+    :root {
+      --blue: #214289;
+      --gold: #f7ad4c;
+      --green: #4caf50;
+      --green-dark: #3a8f3e;
+      --green-shadow: #2d7a30;
+      --red: #e53935;
+      --red-dark: #c62828;
+      --red-shadow: #a12220;
+      --bg: #f4f5f7;
+      --white: #ffffff;
+      --border: #ddd;
+      --text: #1a1a1a;
+      --muted: #888;
+      --radius: 0.6rem;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ============================================================================
+       2. BODY
+       ============================================================================ */
+    body {
+      font-family: 'Nunito', sans-serif;
+      background: var(--blue);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ============================================================================
+       3. MAIN FRAME
+       ============================================================================ */
+    .app {
+      width: 100%;
+      height: 100vh;
+      background: var(--white);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ============================================================================
+       4. HEADER
+       ============================================================================ */
+.header-bar {
+  display: flex;
+  flex-shrink: 0;
+  height: 5rem;
+  border-bottom: 4.75px solid var(--gold);
+}
+
+.header-left {
+  background: var(--blue);
+  padding: 0.5rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-shrink: 0;
+
+}
+
+.header-right {
+  background: var(--blue);
+  transition: background 0.4s ease;
+  padding: 0.5rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex: 1;
+  transition: background 0.4s ease;
+}
+.header-right.mode-in {
+  background: linear-gradient(to right, var(--blue) 0%, var(--green-dark) 60%);
+}
+.header-right.mode-out {
+  background: linear-gradient(to right, var(--blue) 0%, var(--red-dark) 60%);
+}
+
+    .header-logo {
+      height: 4rem;
+      width: auto;
+      flex-shrink: 0;
+    }
+    .header-title {
+      font-size: 2rem;
+      font-weight: 800;
+      color: white;
+      padding-left: 2rem;
+    }
+
+    .header-mode {
+      margin-left: auto;
+      background: rgba(255,255,255,0.2);
+      border: 2px solid rgba(255,255,255,0.4);
+      padding: 0.4rem 1.1rem;
+      border-radius: 2rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: white;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      display: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      min-height: 2.75rem;
+      align-items: center;
+    }
+    .header-mode:hover { background: rgba(255,255,255,0.35); }
+    .header-mode.visible { display: flex; gap: 0.4rem; }
+
+    /* ============================================================================
+       5. BACK BUTTON
+       ============================================================================ */
+    .back-btn {
+      background: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.3);
+      color: white;
+      width: 5rem;
+      height: 3rem;
+      border-radius: 0.5rem;
+      font-size: 1.5rem;
+      font-weight: 6--;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .back-btn:hover { background: rgba(255,255,255,0.25); }
+    .back-btn.visible { display: flex; }
+
+    /* ============================================================================
+       6. SCREENS
+       ============================================================================ */
+    .screen {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .screen.active { display: flex; }
+
+    /* ============================================================================
+       7. SCREEN 1: CHOOSE ACTION
+       ============================================================================ */
+    .action-screen {
+      align-items: center;
+      justify-content: center;
+      gap: 1.25rem;
+      padding: 1.5rem;
+    }
+
+    .action-prompt {
+      font-size: 3rem;
+      font-weight: 800;
+      color: var(--blue);
+      text-align: center;
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 2.5rem;
+      width: 100%;
+      max-width: 44rem;
+    }
+
+    .action-btn {
+      flex: 1;
+      border: none;
+      border-radius: 0.75rem;
+      padding: 0;
+      height: 20vh;
+      max-height: 22rem;
+      min-height: 10rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      font-family: inherit;
+    }
+
+    .action-btn.check-in {
+      background: linear-gradient(170deg, #66d96a 0%, var(--green) 50%, #3a9e3e 100%);
+      color: white;
+      box-shadow: 0 6px 0 var(--green-shadow), 0 8px 20px rgba(76,175,80,0.35), inset 0 1px 1px rgba(255,255,255,0.3);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+    .action-btn.check-out {
+      background: linear-gradient(170deg, #f06560 0%, var(--red) 50%, #c22a27 100%);
+      color: white;
+      box-shadow: 0 6px 0 var(--red-shadow), 0 8px 20px rgba(229,57,53,0.35), inset 0 1px 1px rgba(255,255,255,0.3);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    .action-btn:hover { transform: translateY(-3px); }
+    .action-btn.check-in:hover { box-shadow: 0 8px 0 var(--green-shadow), 0 12px 28px rgba(76,175,80,0.4), inset 0 1px 1px rgba(255,255,255,0.3); }
+    .action-btn.check-out:hover { box-shadow: 0 8px 0 var(--red-shadow), 0 12px 28px rgba(229,57,53,0.4), inset 0 1px 1px rgba(255,255,255,0.3); }
+    .action-btn:active { transform: translateY(3px); }
+    .action-btn.check-in:active { box-shadow: 0 1px 0 var(--green-shadow), 0 2px 4px rgba(0,0,0,0.15), inset 0 2px 4px rgba(0,0,0,0.1); }
+    .action-btn.check-out:active { box-shadow: 0 1px 0 var(--red-shadow), 0 2px 4px rgba(0,0,0,0.15), inset 0 2px 4px rgba(0,0,0,0.1); }
+
+    .action-btn-label { font-size: 2.5rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ============================================================================
+       8. SCREEN 2: FIND STUDENT
+       ============================================================================ */
+    .search-screen { padding: 0; }
+
+    .search-hero {
+      padding: 0.65rem 1rem 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .search-label {
+      font-size: 2rem;
+      font-weight: 750;
+      margin-bottom: 0.3rem;
+      display: block;
+      text-align: center;
+    }
+    .mode-in-text { color: var(--green-dark); }
+    .mode-out-text { color: var(--red-dark); }
+
+    .search-box {
+      width: 100%;
+      padding: 0.6rem 0.85rem;
+      font-size: 2.5rem;
+      font-weight: 600;
+      font-family: inherit;
+      border: 3px solid var(--border);
+      border-radius: var(--radius);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      color: var(--text);
+      min-height: 4rem;
+    }
+    .search-box::placeholder { color: #bbb; font-weight: 500; }
+    .search-box:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(247,173,76,0.25); }
+    .search-box.mode-in:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(76,175,80,0.2); }
+    .search-box.mode-out:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(229,57,53,0.2); }
+
+    /* Prompt before typing */
+    .search-prompt {
+      text-align: center;
+      padding: 1.5rem 1rem;
+      color: var(--muted);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+    }
+    .search-prompt.hidden { display: none; }
+    .search-prompt-icon { font-size: 6rem; opacity: 0.3; }
+    .search-prompt-text { font-size: 2rem; font-weight: 600; }
+
+    /* Results list */
+    .results-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.25rem 0.75rem;
+      display: none;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: 0;
+    }
+    .results-area.visible { display: flex; }
+
+    .student-row {
+      padding: 0.5rem 0.85rem;
+      background: var(--bg);
+      border: 2px solid transparent;
+      border-radius: var(--radius);
+      font-size: 2.85rem;
+      font-weight: 650;
+      cursor: pointer;
+      transition: all 0.12s;
+      text-align: center;
+      min-height: 6rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .student-row:hover { border-color: var(--blue); background: #eef1f8; }
+    .student-row.selected { background: var(--blue); color: white; border-color: var(--blue); }
+    .student-row.selected.mode-in { background: var(--green-dark); border-color: var(--green-dark); }
+    .student-row.selected.mode-out { background: var(--red-dark); border-color: var(--red-dark); }
+
+    /* No results + manual entry */
+    .no-results {
+      text-align: center;
+      padding: 1.5rem;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 1.5rem;
+    }
+    .manual-entry-btn {
+      display: block;
+      width: 90%;
+      max-width: 30rem;
+      margin: 1rem auto 0;
+      padding: 0.75rem;
+      background: var(--gold);
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s;
+      min-height: 3.5rem;
+    }
+    .manual-entry-btn:hover { filter: brightness(0.92); transform: translateY(-2px); }
+
+    /* Bottom bar */
+    .bottom-bar {
+      flex-shrink: 0;
+      border-top: 2px solid var(--border);
+      padding: 0.5rem 0.75rem;
+      background: var(--bg);
+      display: none;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .bottom-bar.visible { display: flex; }
+
+    .selected-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      background: var(--blue);
+      color: white;
+      padding: 0.25rem 0.6rem;
+      border-radius: 2rem;
+      font-size: 2rem;
+      font-weight: 600;
+      min-height: 2.25rem;
+    }
+    .tag.mode-in { background: var(--green-dark); }
+    .tag.mode-out { background: var(--red-dark); }
+    .tag-x {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 0.2rem;
+      opacity: 0.7;
+      font-weight: 700;
+      min-width: 2rem;
+      min-height: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .tag-x:hover { opacity: 1; }
+
+    .next-btn {
+      width: 100%;
+      padding: 0.6rem;
+      font-size: 2.5rem;
+      font-weight: 800;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      color: white;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      transition: all 0.2s;
+      background: var(--blue);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      min-height: 4.5rem;
+      font-family: inherit;
+    }
+    .next-btn.mode-in { background: linear-gradient(170deg, #66d96a 0%, var(--green) 50%, #3a9e3e 100%); box-shadow: 0 4px 0 var(--green-shadow), 0 6px 14px rgba(76,175,80,0.3), inset 0 1px 1px rgba(255,255,255,0.25); }
+    .next-btn.mode-out { background: linear-gradient(170deg, #f06560 0%, var(--red) 50%, #c22a27 100%); box-shadow: 0 4px 0 var(--red-shadow), 0 6px 14px rgba(229,57,53,0.3), inset 0 1px 1px rgba(255,255,255,0.25); }
+    .next-btn:hover { transform: translateY(-2px); }
+    .next-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,0.2), inset 0 2px 3px rgba(0,0,0,0.1); }
+
+    /* ============================================================================
+       9. SCREEN 3: PARENT + CONFIRM
+       ============================================================================ */
+    .confirm-screen {
+      padding: 1rem 1.25rem;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .confirm-summary {
+      width: 100%;
+      max-width: 44rem;
+      text-align: center;
+    }
+    .confirm-action-label {
+      font-size: 1.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.3rem;
+    }
+    .confirm-names {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.3;
+    }
+
+    .parent-section {
+      width: 100%;
+      max-width: 44rem;
+      display: block;
+      text-align: center;
+    }
+    .parent-label {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+      display: block;
+      align-items: center;
+      gap: 0.5rem;
+      text-align: center;
+    }
+    .req-dot {
+      background: var(--red);
+      color: white;
+      font-size: 2rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 2rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .parent-input {
+      width: 100%;
+      padding: 0.6rem 0.85rem;
+      font-size: 3rem;
+      font-weight: 600;
+      font-family: inherit;
+      border: 3px solid var(--border);
+      border-radius: var(--radius);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      min-height: 4rem;
+    }
+    .parent-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(247,173,76,0.25); }
+
+    .confirm-btn {
+      width: 100%;
+      max-width: 44rem;
+      padding: 0.85rem;
+      font-size: 3rem;
+      font-weight: 900;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      color: white;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      transition: all 0.2s;
+      margin-top: auto;
+      min-height: 4.5rem;
+      font-family: inherit;
+    }
+    .confirm-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+    .confirm-btn:not(:disabled):hover { transform: translateY(-2px); }
+    .confirm-btn:not(:disabled):active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,0.2), inset 0 2px 3px rgba(0,0,0,0.1) !important; }
+    .confirm-btn.mode-in { background: linear-gradient(170deg, #66d96a 0%, var(--green) 50%, #3a9e3e 100%); box-shadow: 0 5px 0 var(--green-shadow), 0 8px 18px rgba(76,175,80,0.3), inset 0 1px 1px rgba(255,255,255,0.25); text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+    .confirm-btn.mode-out { background: linear-gradient(170deg, #f06560 0%, var(--red) 50%, #c22a27 100%); box-shadow: 0 5px 0 var(--red-shadow), 0 8px 18px rgba(229,57,53,0.3), inset 0 1px 1px rgba(255,255,255,0.25); text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
+    /* ============================================================================
+       10. SCREEN 4: SUCCESS
+       ============================================================================ */
+    .success-screen {
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .success-icon { font-size: 6rem; line-height: 1; }
+    .success-text { font-size: 3rem; font-weight: 800; }
+    .success-detail { font-size: 1.75rem; color: var(--muted); font-weight: 600; }
+    .success-countdown { font-size: 1.1rem; color: var(--muted); margin-top: 0.25rem; }
+
+    /* ============================================================================
+       11. NOTIFICATION
+       ============================================================================ */
+    .notification {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      padding: 1.5rem 2rem;
+      background: var(--green);
+      color: white;
+      border-radius: var(--radius);
+      font-weight: 700;
+      font-size: 1.5rem;
+      text-align: center;
+      min-width: 20rem;
+      max-width: 36rem;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      z-index: 1003;
+      box-shadow: 0 1.25rem 3.75rem rgba(0,0,0,0.3);
+      border: 3px solid rgba(255,255,255,0.3);
+    }
+    .notification.show {
+      opacity: 1;
+      visibility: visible;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .notification.error { background: var(--red); }
+
+    /* ============================================================================
+       12. CUSTOM MODAL (Manual Entry)
+       ============================================================================ */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+    .modal-overlay.show { opacity: 1; visibility: visible; }
+
+    .modal-content {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: 0 0.5rem 2rem rgba(0,0,0,0.3);
+      border: 4px solid var(--blue);
+      max-width: 90%;
+      width: 36rem;
+      padding: 2rem;
+      transform: scale(0.9);
+      transition: transform 0.3s ease;
+    }
+    .modal-overlay.show .modal-content { transform: scale(1); }
+
+    .modal-header { text-align: center; margin-bottom: 1.25rem; }
+    .modal-title { font-size: 1.75rem; font-weight: 800; color: var(--blue); margin: 0; }
+    .modal-subtitle { font-size: 1rem; color: var(--muted); margin: 0.5rem 0 0 0; }
+
+    .modal-body { margin-bottom: 1.25rem; }
+    .modal-input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      font-size: 1.5rem;
+      font-weight: 600;
+      font-family: inherit;
+      border: 3px solid var(--border);
+      border-radius: var(--radius);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      color: var(--text);
+    }
+    .modal-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(247,173,76,0.25); }
+    .modal-input::placeholder { color: #bbb; }
+
+    .modal-buttons { display: flex; gap: 0.75rem; }
+    .modal-btn {
+      flex: 1;
+      padding: 0.85rem;
+      font-size: 1.15rem;
+      font-weight: 800;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-family: inherit;
+      min-height: 3rem;
+    }
+    .modal-btn-primary { background: var(--blue); color: white; }
+    .modal-btn-primary:hover { filter: brightness(1.15); }
+    .modal-btn-secondary { background: var(--bg); color: var(--text); border: 2px solid var(--border); }
+    .modal-btn-secondary:hover { background: #e8e8e8; }
+
+    /* ============================================================================
+       13. LOADING OVERLAY
+       ============================================================================ */
+    .loading-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    }
+    .loading-box {
+      background: white;
+      padding: 2rem 3rem;
+      border-radius: var(--radius);
+      text-align: center;
+      box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.2);
+    }
+    .loading-spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid var(--green);
+      border-radius: 50%;
+      width: 3rem;
+      height: 3rem;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    .loading-text {
+      margin: 0;
+      font-size: 1.1rem;
+      color: #333;
+      font-weight: 600;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* ============================================================================
+       14. SCROLLBAR
+       ============================================================================ */
+    .results-area::-webkit-scrollbar { width: 2rem; }
+    .results-area::-webkit-scrollbar-track { background: #f0f0f0; border-radius: 1rem; }
+    .results-area::-webkit-scrollbar-thumb { background: #214289; border-radius: 1rem; min-height: 3rem; border: 2px solid #f0f0f0; }
+    .results-area::-webkit-scrollbar-thumb:hover { background: #999; }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ======== HEADER ======== -->
+<div class="header-bar">
+  <div class="header-left">
+    <button class="back-btn" id="backBtn">Back</button>
+    <img class="header-logo" src="data:image/png;base64,<?= logoBytes ?>" alt="School Logo">
+  </div>
+  <div class="header-right" id="header">
+    
+    <button class="header-mode" id="headerMode"><span id="headerModeText">Check In</span> <span style="font-size:1.1rem;">⇄</span></button>
+  </div>
+</div>
+
+  <!-- ======== SCREEN 1: Choose Action ======== -->
+  <div class="screen action-screen active" id="screen1">
+    <div class="action-prompt">What would you like to do?</div>
+    <div class="action-buttons">
+      <button class="action-btn check-in" data-action="in">
+        <span class="action-btn-label">Check In</span>
+      </button>
+      <button class="action-btn check-out" data-action="out">
+        <span class="action-btn-label">Check Out</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ======== SCREEN 2: Find Student ======== -->
+  <div class="screen search-screen" id="screen2">
+    <div class="search-hero">
+      <label class="search-label" id="searchLabel">Search for Student</label>
+      <input type="search" class="search-box" id="searchBox" placeholder="Type student's name..." autocomplete="off">
+    </div>
+
+    <div class="search-prompt" id="searchPrompt">
+      <div class="search-prompt-icon">&#9000;</div>
+      <div class="search-prompt-text">Start typing a name above</div>
+    </div>
+
+    <div class="results-area" id="resultsArea"></div>
+
+    <div class="bottom-bar" id="bottomBar">
+      <div class="selected-tags" id="selectedTags"></div>
+      <button class="next-btn" id="nextBtn">Next</button>
+    </div>
+  </div>
+
+  <!-- ======== SCREEN 3: Parent + Confirm ======== -->
+  <div class="screen confirm-screen" id="screen3">
+    <div class="confirm-summary">
+      <div class="confirm-action-label" id="confirmActionLabel">Checking In</div>
+      <div class="confirm-names" id="confirmNames">&mdash;</div>
+    </div>
+    <div class="parent-section">
+      <label class="parent-label">
+        Enter Parent / Guardian Name
+        
+      </label>
+      <input type="text" class="parent-input" id="parentInput" placeholder="">
+    </div>
+    <button class="confirm-btn mode-in" id="confirmBtn" disabled>Confirm Check In</button>
+  </div>
+
+  <!-- ======== SCREEN 4: Success ======== -->
+  <div class="screen success-screen" id="screen4">
+    <div class="success-icon" id="successIcon">&#10003;</div>
+    <div class="success-text" id="successText">Checked In!</div>
+    <div class="success-detail" id="successDetail">&mdash;</div>
+    <div class="success-countdown">Returning to start in a few seconds...</div>
+  </div>
+</div>
+
+<!-- Notification -->
+<div id="notification" class="notification"></div>
+
+<!-- Modal for manual entry -->
+<div id="customModal" class="modal-overlay">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 class="modal-title" id="modalTitle">Add Student Manually</h2>
+      <p class="modal-subtitle" id="modalSubtitle">Enter the student's full name</p>
+    </div>
+    <div class="modal-body">
+      <input type="text" id="modalInput" class="modal-input" placeholder="Enter student's full name">
+    </div>
+    <div class="modal-buttons">
+      <button id="modalCancel" class="modal-btn modal-btn-secondary">Cancel</button>
+      <button id="modalConfirm" class="modal-btn modal-btn-primary">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ========================================================================
+     1. STATE
+     ======================================================================== */
+  var state = {
+    currentScreen: 1,
+    mode: '',
+    allStudents: [],
+    filteredStudents: [],
+    selectedStudents: new Set(),
+    parentName: '',
+    isSearching: false
+  };
+
+  /* ========================================================================
+     2. DOM REFS
+     ======================================================================== */
+  var el = {
+    header:          document.getElementById('header'),
+    backBtn:         document.getElementById('backBtn'),
+    headerMode:      document.getElementById('headerMode'),
+    headerModeText:  document.getElementById('headerModeText'),
+    searchLabel:     document.getElementById('searchLabel'),
+    searchBox:       document.getElementById('searchBox'),
+    searchPrompt:    document.getElementById('searchPrompt'),
+    resultsArea:     document.getElementById('resultsArea'),
+    bottomBar:       document.getElementById('bottomBar'),
+    selectedTags:    document.getElementById('selectedTags'),
+    nextBtn:         document.getElementById('nextBtn'),
+    confirmActionLabel: document.getElementById('confirmActionLabel'),
+    confirmNames:    document.getElementById('confirmNames'),
+    parentInput:     document.getElementById('parentInput'),
+    confirmBtn:      document.getElementById('confirmBtn'),
+    successIcon:     document.getElementById('successIcon'),
+    successText:     document.getElementById('successText'),
+    successDetail:   document.getElementById('successDetail'),
+    notification:    document.getElementById('notification'),
+    customModal:     document.getElementById('customModal'),
+    modalTitle:      document.getElementById('modalTitle'),
+    modalSubtitle:   document.getElementById('modalSubtitle'),
+    modalInput:      document.getElementById('modalInput'),
+    modalCancel:     document.getElementById('modalCancel'),
+    modalConfirm:    document.getElementById('modalConfirm')
+  };
+
+  /* ========================================================================
+     3. HELPERS
+     ======================================================================== */
+  function modeClass()  { return state.mode === 'in' ? 'mode-in' : 'mode-out'; }
+  function modeColor()  { return state.mode === 'in' ? 'var(--green)' : 'var(--red)'; }
+  function modeLabel()  { return state.mode === 'in' ? 'Check In' : 'Check Out'; }
+  function modeStatus() { return state.mode === 'in' ? 'In' : 'Out'; }
+
+  /* ========================================================================
+     4. INIT
+     ======================================================================== */
+  function init() {
+    loadStudents().then(function() {
+      setupEventListeners();
+    });
+  }
+
+  /* ========================================================================
+     5. LOAD STUDENTS FROM SERVER
+     ======================================================================== */
+  function loadStudents() {
+    return new Promise(function(resolve, reject) {
+      google.script.run
+        .withSuccessHandler(function(students) {
+          state.allStudents = students || [];
+          resolve();
+        })
+        .withFailureHandler(function(error) {
+          var msg = (error && error.message) ? error.message : String(error);
+          console.error('getAllStudents failed:', error);
+          showNotification('Failed to load students: ' + msg, 'error');
+          reject(error);
+        })
+        .getAllStudents();
+    });
+  }
+
+  /* ========================================================================
+     6. EVENT LISTENERS
+     ======================================================================== */
+  function setupEventListeners() {
+    // Action buttons (Screen 1)
+    var actionBtns = document.querySelectorAll('.action-btn');
+    for (var i = 0; i < actionBtns.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function() { chooseAction(btn.dataset.action); });
+      })(actionBtns[i]);
+    }
+
+    // Back button
+    el.backBtn.addEventListener('click', goBack);
+
+    // Mode switch
+    el.headerMode.addEventListener('click', switchMode);
+
+    // Search with debounce
+    var searchTimeout;
+    el.searchBox.addEventListener('input', function(e) {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(function() { handleSearch(e.target.value); }, 300);
+    });
+
+    // Student results + manual entry — event delegation
+    el.resultsArea.addEventListener('click', function(e) {
+      var row = e.target.closest('.student-row');
+      if (row && row.dataset.studentName) {
+        toggleStudent(row.dataset.studentName);
+        return;
+      }
+      var manualBtn = e.target.closest('.manual-entry-btn');
+      if (manualBtn) {
+        addManualStudent();
+      }
+    });
+
+    // Tag remove — event delegation
+    el.selectedTags.addEventListener('click', function(e) {
+      var x = e.target.closest('.tag-x');
+      if (x && x.dataset.remove) {
+        e.stopPropagation();
+        removeStudent(x.dataset.remove);
+      }
+    });
+
+    // Next button
+    el.nextBtn.addEventListener('click', goToConfirm);
+
+    // Parent input
+    el.parentInput.addEventListener('input', function() {
+      state.parentName = el.parentInput.value.trim();
+      updateConfirmState();
+    });
+
+    // Confirm button
+    el.confirmBtn.addEventListener('click', handleConfirm);
+  }
+
+  /* ========================================================================
+     7. NAVIGATION
+     ======================================================================== */
+  function showScreen(n) {
+    var screens = document.querySelectorAll('.screen');
+    for (var i = 0; i < screens.length; i++) { screens[i].classList.remove('active'); }
+    document.getElementById('screen' + n).classList.add('active');
+    state.currentScreen = n;
+
+    if (n > 1 && n < 4) { el.backBtn.classList.add('visible'); }
+    else { el.backBtn.classList.remove('visible'); }
+
+    if (n >= 2 && state.mode) {
+      el.headerModeText.textContent = modeLabel();
+      el.headerMode.classList.add('visible');
+    } else {
+      el.headerMode.classList.remove('visible');
+    }
+
+    el.header.className = 'header-right' + (n >= 2 && state.mode ? ' ' + modeClass() : '');
+  }
+
+  function goBack() {
+    if (state.currentScreen === 2) {
+      state.mode = '';
+      state.selectedStudents.clear();
+      el.searchBox.value = '';
+      el.resultsArea.innerHTML = '';
+      el.resultsArea.classList.remove('visible');
+      el.searchPrompt.classList.remove('hidden');
+      el.bottomBar.classList.remove('visible');
+      showScreen(1);
+    } else if (state.currentScreen === 3) {
+      showScreen(2);
+    }
+  }
+
+  /* ========================================================================
+     8. SCREEN 1: CHOOSE ACTION
+     ======================================================================== */
+  function chooseAction(action) {
+    state.mode = action;
+    state.selectedStudents.clear();
+
+    el.searchLabel.textContent = 'Search for Student to ' + modeLabel();
+    el.searchLabel.className = 'search-label ' + modeClass() + '-text';
+    el.searchBox.className = 'search-box ' + modeClass();
+    el.searchBox.value = '';
+    el.nextBtn.className = 'next-btn ' + modeClass();
+
+    el.resultsArea.innerHTML = '';
+    el.resultsArea.classList.remove('visible');
+    el.searchPrompt.classList.remove('hidden');
+    el.bottomBar.classList.remove('visible');
+
+    showScreen(2);
+    setTimeout(function() { el.searchBox.focus(); }, 150);
+  }
+
+  /* ========================================================================
+     9. MODE SWITCH
+     ======================================================================== */
+  function switchMode() {
+    state.mode = state.mode === 'in' ? 'out' : 'in';
+    applyModeToCurrentScreen();
+  }
+
+  function applyModeToCurrentScreen() {
+    el.header.className = 'header-right ' + modeClass();
+    el.headerModeText.textContent = modeLabel();
+
+    if (state.currentScreen === 2) {
+      el.searchLabel.textContent = 'Search for Student to ' + modeLabel();
+      el.searchLabel.className = 'search-label ' + modeClass() + '-text';
+      el.searchBox.className = 'search-box ' + modeClass();
+      el.nextBtn.className = 'next-btn ' + modeClass();
+      refreshSelectionUI();
+      handleSearch(el.searchBox.value);
+    }
+
+    if (state.currentScreen === 3) {
+      el.confirmActionLabel.textContent = state.mode === 'in' ? 'Checking In:' : 'Checking Out:';
+      el.confirmActionLabel.className = 'confirm-action-label ' + modeClass() + '-text';
+      el.confirmBtn.className = 'confirm-btn ' + modeClass();
+      el.confirmBtn.textContent = 'Confirm ' + modeLabel();
+    }
+  }
+
+  /* ========================================================================
+     10. SCREEN 2: SEARCH & SELECT
+     ======================================================================== */
+  function handleSearch(val) {
+    var term = (val || '').trim().toLowerCase();
+
+    if (!term) {
+      state.isSearching = false;
+      el.resultsArea.classList.remove('visible');
+      el.searchPrompt.classList.remove('hidden');
+      return;
+    }
+
+    state.isSearching = true;
+    el.searchPrompt.classList.add('hidden');
+    el.resultsArea.classList.add('visible');
+
+    var words = term.split(/\s+/);
+
+    state.filteredStudents = state.allStudents.filter(function(student) {
+      var targets = [
+        student.fullName.toLowerCase(),
+        (student.nickname || '').toLowerCase(),
+        student.firstName.toLowerCase(),
+        student.lastName.toLowerCase()
+      ];
+      return words.every(function(word) {
+        return targets.some(function(t) { return t.indexOf(word) !== -1; });
+      });
+    });
+
+    displayStudents(state.filteredStudents);
+  }
+
+  function displayStudents(students) {
+    if (students.length === 0) {
+      el.resultsArea.innerHTML =
+        '<div class="no-results">No students found' +
+        '<button class="manual-entry-btn">Add Student Manually</button></div>';
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < students.length; i++) {
+      var student = students[i];
+      var isSelected = state.selectedStudents.has(student.fullName);
+      var hasNickname = student.nickname &&
+                        student.nickname.trim() !== '' &&
+                        student.nickname !== '-' &&
+                        student.nickname !== student.firstName;
+
+      var displayName = hasNickname
+        ? student.fullName + ' (' + student.nickname + ')'
+        : student.fullName;
+
+      var escapedName = student.fullName.replace(/"/g, '&quot;');
+
+      html += '<div class="student-row' + (isSelected ? ' selected ' + modeClass() : '') +
+              '" data-student-name="' + escapedName + '">' + displayName + '</div>';
+    }
+    el.resultsArea.innerHTML = html;
+  }
+
+  function toggleStudent(studentName) {
+    if (state.selectedStudents.has(studentName)) {
+      state.selectedStudents.delete(studentName);
+    } else {
+      state.selectedStudents.add(studentName);
+    }
+    refreshSelectionUI();
+    if (state.isSearching) {
+      displayStudents(state.filteredStudents);
+    }
+  }
+
+  function removeStudent(studentName) {
+    state.selectedStudents.delete(studentName);
+    refreshSelectionUI();
+    if (state.isSearching) {
+      displayStudents(state.filteredStudents);
+    }
+  }
+
+  function refreshSelectionUI() {
+    if (state.selectedStudents.size === 0) {
+      el.bottomBar.classList.remove('visible');
+      return;
+    }
+    el.bottomBar.classList.add('visible');
+    var names = Array.from(state.selectedStudents);
+    var html = '';
+    for (var i = 0; i < names.length; i++) {
+      var escaped = names[i].replace(/"/g, '&quot;');
+      html += '<span class="tag ' + modeClass() + '">' + names[i] +
+              '<button class="tag-x" data-remove="' + escaped + '">&times;</button></span>';
+    }
+    el.selectedTags.innerHTML = html;
+  }
+
+  /* ========================================================================
+     11. MANUAL ENTRY
+     ======================================================================== */
+  function addManualStudent() {
+    showCustomModal(
+      'Add Student Manually',
+      "Enter the student's full name",
+      "Enter student's full name",
+      function(value) {
+        if (value && value.trim()) {
+          state.selectedStudents.add(value.trim());
+          refreshSelectionUI();
+          showNotification('Added "' + value.trim() + '" manually', 'success');
+        }
+      }
+    );
+  }
+
+  function showCustomModal(title, subtitle, placeholder, onConfirm) {
+    el.modalTitle.textContent = title;
+    el.modalSubtitle.textContent = subtitle;
+    el.modalInput.placeholder = placeholder;
+    el.modalInput.value = '';
+    el.customModal.classList.add('show');
+    setTimeout(function() { el.modalInput.focus(); }, 100);
+
+    function confirmHandler() {
+      var value = el.modalInput.value.trim();
+      hideCustomModal();
+      if (onConfirm) onConfirm(value);
+      cleanup();
+    }
+    function cancelHandler() { hideCustomModal(); cleanup(); }
+    function keyHandler(e) {
+      if (e.key === 'Enter') confirmHandler();
+      else if (e.key === 'Escape') cancelHandler();
+    }
+
+    el.modalConfirm.addEventListener('click', confirmHandler);
+    el.modalCancel.addEventListener('click', cancelHandler);
+    el.modalInput.addEventListener('keydown', keyHandler);
+
+    function cleanup() {
+      el.modalConfirm.removeEventListener('click', confirmHandler);
+      el.modalCancel.removeEventListener('click', cancelHandler);
+      el.modalInput.removeEventListener('keydown', keyHandler);
+    }
+  }
+
+  function hideCustomModal() {
+    el.customModal.classList.remove('show');
+  }
+
+  /* ========================================================================
+     12. SCREEN 3: PARENT + CONFIRM
+     ======================================================================== */
+  function goToConfirm() {
+    el.confirmActionLabel.textContent = state.mode === 'in' ? 'Checking In:' : 'Checking Out:';
+    el.confirmActionLabel.className = 'confirm-action-label ' + modeClass() + '-text';
+    el.confirmNames.textContent = Array.from(state.selectedStudents).join(', ');
+
+    el.confirmBtn.className = 'confirm-btn ' + modeClass();
+    el.confirmBtn.textContent = 'Confirm ' + modeLabel();
+    el.confirmBtn.disabled = true;
+
+    el.parentInput.value = '';
+    state.parentName = '';
+    showScreen(3);
+    setTimeout(function() { el.parentInput.focus(); }, 150);
+  }
+
+  function updateConfirmState() {
+    el.confirmBtn.disabled = !state.parentName;
+  }
+
+  /* ========================================================================
+     13. CONFIRM — WRITE TO SHEET
+     ======================================================================== */
+  var isSubmitting = false;
+
+  function handleConfirm() {
+    if (isSubmitting) return;
+    isSubmitting = true;
+    el.confirmBtn.disabled = true;
+    showLoading('Checking ' + modeStatus().toLowerCase() + ' ' + state.selectedStudents.size + ' student(s)...');
+
+    var sheetName = getSheetName();
+    var studentNames = Array.from(state.selectedStudents);
+
+    google.script.run
+      .withSuccessHandler(function() {
+        hideLoading();
+        showSuccess(studentNames);
+        isSubmitting = false;
+      })
+      .withFailureHandler(function(error) {
+        hideLoading();
+        var msg = (error && error.message) ? error.message : String(error);
+        showNotification('Failed: ' + msg, 'error');
+        console.error('logCheckInOutToSheet failed:', error);
+        el.confirmBtn.disabled = false;
+        isSubmitting = false;
+      })
+      .logCheckInOutToSheet(sheetName, modeStatus(), state.parentName, studentNames);
+  }
+
+  function getSheetName() {
+    var date = new Date();
+    var month = String(date.getMonth() + 1).padStart(2, '0');
+    var year = date.getFullYear();
+    return month + '-' + year;
+  }
+
+  /* ========================================================================
+     14. SCREEN 4: SUCCESS + AUTO-RESET
+     ======================================================================== */
+  function showSuccess(studentNames) {
+    el.successIcon.textContent = '\u2713';
+    el.successIcon.style.color = modeColor();
+    el.successText.textContent = state.mode === 'in' ? 'Checked In!' : 'Checked Out!';
+    el.successText.style.color = modeColor();
+    el.successDetail.textContent = studentNames.join(', ') + ' \u2014 by ' + state.parentName;
+
+    showScreen(4);
+    setTimeout(resetApp, 4000);
+  }
+
+  function resetApp() {
+    state.mode = '';
+    state.selectedStudents.clear();
+    state.parentName = '';
+    state.isSearching = false;
+
+    el.searchBox.value = '';
+    el.parentInput.value = '';
+    el.resultsArea.innerHTML = '';
+    el.resultsArea.classList.remove('visible');
+    el.searchPrompt.classList.remove('hidden');
+    el.bottomBar.classList.remove('visible');
+    el.confirmBtn.disabled = true;
+
+    showScreen(1);
+  }
+
+  /* ========================================================================
+     15. NOTIFICATION
+     ======================================================================== */
+  function showNotification(message, type) {
+    type = type || 'success';
+    el.notification.className = 'notification' + (type === 'error' ? ' error' : '');
+    el.notification.textContent = message;
+    el.notification.classList.add('show');
+    setTimeout(function() { el.notification.classList.remove('show'); }, 4000);
+  }
+
+  /* ========================================================================
+     16. LOADING OVERLAY
+     ======================================================================== */
+  function showLoading(message) {
+    message = message || 'Processing...';
+    var overlay = document.createElement('div');
+    overlay.id = 'loadingOverlay';
+    overlay.className = 'loading-overlay';
+    overlay.innerHTML =
+      '<div class="loading-box">' +
+      '<div class="loading-spinner"></div>' +
+      '<p class="loading-text">' + message + '</p>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  function hideLoading() {
+    var overlay = document.getElementById('loadingOverlay');
+    if (overlay) overlay.remove();
+  }
+
+  /* ========================================================================
+     17. INIT ON LOAD
+     ======================================================================== */
+  document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
