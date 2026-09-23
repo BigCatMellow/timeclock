@@ -258,6 +258,7 @@ const SpreadsheetManager = {
 
       sheet.getRange(startRow, 7, numRows, 1).setFormulas(returningFormulas);
       sheet.getRange(startRow, 9, numRows, 1).setFormulas(busFormulas);
+      SpreadsheetApp.flush();
 
       Logger.info('Batch write successful', {
         startRow,
