@@ -220,7 +220,7 @@ const SpreadsheetManager = {
   }
 },
   
-  batchWrite(sheet, data) {
+  batchWrite(sheet, data, busRoutes) {
     if (!data || !data.length) return;
 
     if (data.length > CONFIG.MAX_BATCH_SIZE) {
@@ -240,7 +240,7 @@ const SpreadsheetManager = {
       sheet.getRange(startRow, 1, numRows, numCols).setValues(data);
 
       const returningFormulas = [];
-      const busFormulas = [];
+      const busValues = [];
 
       for (let i = 0; i < numRows; i++) {
         const rowNum = startRow + i;
@@ -250,14 +250,15 @@ const SpreadsheetManager = {
           `=IF(AND(C${rowNum}="In",COUNTIFS($C$1:C${rowNum - 1},"Out",$A$1:A${rowNum - 1},A${rowNum},$F$1:F${rowNum - 1},F${rowNum},$D$1:D${rowNum - 1},D${rowNum})>0),"x","")`
         ]);
 
-        // I — Bus
-        busFormulas.push([
-          `=IF(C${rowNum}="Out",IFERROR(INDEX('${CONFIG.STUDENT_DATA_SHEET}'!H:H,MATCH(F${rowNum},'${CONFIG.STUDENT_DATA_SHEET}'!F:F,0)),""),"")`
+        // I — Bus. Snapshot the current route rather than relying on a fragile
+        // cross-sheet column formula.
+        busValues.push([
+          data[i][2] === 'Out' && busRoutes && busRoutes[i] ? busRoutes[i] : ''
         ]);
       }
 
       sheet.getRange(startRow, 7, numRows, 1).setFormulas(returningFormulas);
-      sheet.getRange(startRow, 9, numRows, 1).setFormulas(busFormulas);
+      sheet.getRange(startRow, 9, numRows, 1).setValues(busValues);
       SpreadsheetApp.flush();
 
       Logger.info('Batch write successful', {
@@ -500,7 +501,11 @@ function logCheckInOutToSheet(monthYear, status, parentName, studentSelections) 
       student.studentId
     ]);
 
-    SpreadsheetManager.batchWrite(sheet, rows);
+    SpreadsheetManager.batchWrite(
+      sheet,
+      rows,
+      validatedStudents.map(student => student.busRoute || '')
+    );
 
     Logger.info('Check-in/out completed successfully', {
       studentsProcessed: validatedStudents.length,
@@ -592,7 +597,10 @@ function logManualCheckInOut(status, manualDate, manualTime, studentSelections) 
     for (let start = 0; start < rows.length; start += CONFIG.MAX_BATCH_SIZE) {
       SpreadsheetManager.batchWrite(
         sheet,
-        rows.slice(start, start + CONFIG.MAX_BATCH_SIZE)
+        rows.slice(start, start + CONFIG.MAX_BATCH_SIZE),
+        validatedStudents
+          .slice(start, start + CONFIG.MAX_BATCH_SIZE)
+          .map(student => student.busRoute || '')
       );
     }
 
