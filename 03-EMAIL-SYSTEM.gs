@@ -74,6 +74,23 @@ function getEmailStatusTracker() {
         }
       }
     }
+
+    const expectedHeaders = [
+      'Student ID',
+      'Student Name',
+      'Report Date Range',
+      'Date Generated',
+      'Email Sent',
+      'Date Sent',
+      'Override Next Time',
+      'Never Send',
+      'Notes'
+    ];
+    const actualHeaders = trackerSheet.getRange(1, 1, 1, expectedHeaders.length).getValues()[0];
+    const mismatches = expectedHeaders.filter((header, index) => actualHeaders[index] !== header);
+    if (mismatches.length > 0) {
+      throw new Error('Email Status Tracker columns are not in the expected order: ' + mismatches.join(', '));
+    }
     
     return trackerSheet;
     
