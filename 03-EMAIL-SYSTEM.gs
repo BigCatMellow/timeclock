@@ -91,6 +91,7 @@ function logStudentToTracker(studentId, studentName, reportDateRange, notes = ''
     
     const trackerSheet = getEmailStatusTracker();
     const currentDate = new Date();
+    const currentNeverSend = isStudentNeverSend(cleanStudentId);
     
     const row = [
       cleanStudentId,
@@ -100,7 +101,7 @@ function logStudentToTracker(studentId, studentName, reportDateRange, notes = ''
       false,
       '',
       false,
-      false,
+      currentNeverSend,
       cleanNotes
     ];
     
@@ -580,13 +581,8 @@ function generateEmailDataWithNewTracker(reportData, useThreshold, thresholdValu
     };
     
   } catch (error) {
-    return {
-      emailData: [],
-      skippedStudents: [],
-      processedStudents: [],
-      todayOnlyCount: 0,
-      summary: { totalStudents: 0, emailsToGenerate: 0, skippedCount: 0 }
-    };
+    console.error('Error generating email data:', error);
+    throw error;
   }
 }
 
@@ -1038,7 +1034,7 @@ function addReportToTracker(formData) {
           emailSentStatus,
           dateSent,
           false,
-          false,
+          isStudentNeverSend(student.studentId),
           statusNotes
         ];
         
