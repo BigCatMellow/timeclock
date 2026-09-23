@@ -370,7 +370,7 @@ function getStudentRoster_(includeInactive) {
   const headerMap = getHeaderMap_(data[0]);
   const column = (name) => headerMap[String(name).toLowerCase()];
 
-  [CONFIG.STUDENT_DATA_HEADERS.FULL_NAME, CONFIG.STUDENT_DATA_HEADERS.STUDENT_ID].forEach((header) => {
+  Object.values(CONFIG.STUDENT_DATA_HEADERS).forEach((header) => {
     if (column(header) === undefined) {
       throw new AppError(
         `Student Data is missing required column: ${header}`,
@@ -419,12 +419,13 @@ function resolveStudentSelections_(selections) {
   });
 
   return selections.map(selection => {
-    const rawSelection = Validator.sanitize(selection);
-    const suppliedId = selection && typeof selection === 'object'
+    const isObjectSelection = selection && typeof selection === 'object';
+    const rawSelection = isObjectSelection ? '' : Validator.sanitize(selection);
+    const suppliedId = isObjectSelection
       ? Validator.sanitize(selection.studentId || '')
       : (/^\d+$/.test(rawSelection) ? rawSelection : '');
 
-    const suppliedName = selection && typeof selection === 'object'
+    const suppliedName = isObjectSelection
       ? Validator.sanitize(selection.fullName || '')
       : (suppliedId ? '' : rawSelection);
 
