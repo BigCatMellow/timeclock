@@ -4,6 +4,18 @@
 // ============================================================================
 
 // EMAIL STATUS TRACKER SETUP
+const EMAIL_TRACKER = {
+  STUDENT_ID: 0,
+  STUDENT_NAME: 1,
+  REPORT_RANGE: 2,
+  DATE_GENERATED: 3,
+  EMAIL_SENT: 4,
+  DATE_SENT: 5,
+  OVERRIDE: 6,
+  NEVER_SEND: 7,
+  NOTES: 8
+};
+
 function getEmailStatusTracker() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -62,6 +74,23 @@ function getEmailStatusTracker() {
         }
       }
     }
+
+    const expectedHeaders = [
+      'Student ID',
+      'Student Name',
+      'Report Date Range',
+      'Date Generated',
+      'Email Sent',
+      'Date Sent',
+      'Override Next Time',
+      'Never Send',
+      'Notes'
+    ];
+    const actualHeaders = trackerSheet.getRange(1, 1, 1, expectedHeaders.length).getValues()[0];
+    const mismatches = expectedHeaders.filter((header, index) => actualHeaders[index] !== header);
+    if (mismatches.length > 0) {
+      throw new Error('Email Status Tracker columns are not in the expected order: ' + mismatches.join(', '));
+    }
     
     return trackerSheet;
     
@@ -79,6 +108,7 @@ function logStudentToTracker(studentId, studentName, reportDateRange, notes = ''
     
     const trackerSheet = getEmailStatusTracker();
     const currentDate = new Date();
+    const currentNeverSend = isStudentNeverSend(cleanStudentId);
     
     const row = [
       cleanStudentId,
@@ -88,7 +118,7 @@ function logStudentToTracker(studentId, studentName, reportDateRange, notes = ''
       false,
       '',
       false,
-      false,
+      currentNeverSend,
       cleanNotes
     ];
     
@@ -124,7 +154,7 @@ function wasStudentRecentlyEmailed(studentId, dayWindow = 14) {
   cutoffDate.setDate(cutoffDate.getDate() - dayWindow);
   
   for (let i = data.length - 1; i >= 1; i--) {
-    const [recordStudentId, studentName, reportRange, dateGenerated, emailSent, dateSent, override, notes] = data[i];
+    const [recordStudentId, studentName, reportRange, dateGenerated, emailSent, dateSent, override, neverSend, notes] = data[i];
     
     if (recordStudentId == studentId && emailSent === true) {
       const sentDate = dateSent ? new Date(dateSent) : new Date(dateGenerated);
@@ -151,11 +181,12 @@ function hasOverrideFlag(studentId) {
   if (data.length <= 1) return false;
   
   for (let i = data.length - 1; i >= 1; i--) {
-    const [recordStudentId, studentName, reportRange, dateGenerated, emailSent, dateSent, override, notes] = data[i];
-    
+    const [recordStudentId, studentName, reportRange, dateGenerated, emailSent, dateSent, override, neverSend, notes] = data[i];
+
     if (recordStudentId == studentId && override === true) {
-      trackerSheet.getRange(i + 1, 7).setValue(false);
-      trackerSheet.getRange(i + 1, 8).setValue((notes || '') + ' [Override used]');
+      trackerSheet.getRange(i + 1, EMAIL_TRACKER.OVERRIDE + 1).setValue(false);
+      const updatedNotes = [String(notes || '').trim(), '[Override used]'].filter(Boolean).join(' ');
+      trackerSheet.getRange(i + 1, EMAIL_TRACKER.NOTES + 1).setValue(updatedNotes);
       return true;
     }
   }
@@ -166,17 +197,17 @@ function hasOverrideFlag(studentId) {
 function isStudentNeverSend(studentId) {
   const trackerSheet = getEmailStatusTracker();
   const data = trackerSheet.getDataRange().getValues();
-  
+
   if (data.length <= 1) return false;
-  
+
+  // The newest tracker row for a student is authoritative.
   for (let i = data.length - 1; i >= 1; i--) {
-    const [recordStudentId, studentName, reportRange, dateGenerated, emailSent, dateSent, override, neverSend, notes] = data[i];
-    
-    if (recordStudentId == studentId && neverSend === true) {
-      return true;
+    const recordStudentId = data[i][EMAIL_TRACKER.STUDENT_ID];
+    if (recordStudentId == studentId) {
+      return data[i][EMAIL_TRACKER.NEVER_SEND] === true;
     }
   }
-  
+
   return false;
 }
 
@@ -399,7 +430,7 @@ function generateEmailDataWithNewTracker(reportData, useThreshold, thresholdValu
       };
     }
     
-    const studentDirectory = getStudentDirectory();
+    const studentDirectory = getStudentDirectory_();
     const salutationGroups = {};
     const skippedStudents = [];
     const processedStudents = [];
@@ -408,29 +439,27 @@ function generateEmailDataWithNewTracker(reportData, useThreshold, thresholdValu
     const today = new Date();
     const todayStr = formatDate(today);
     
-    const earlyGrades = ['Beg. A', 'Beg. B', 'PreK A', 'PreK B', 'PreK C'];
-    
     const familyGroups = buildFamilyGroups(reportData.students, studentDirectory);
-    
+
     const familiesWithMultipleTardies = new Set();
-    
+
     if (todayOnly) {
-      Object.entries(familyGroups).forEach(([salutation, students]) => {
+      Object.entries(familyGroups).forEach(([familyKey, students]) => {
         const studentsWithTardiesToday = students.filter(student => {
           return student.tardies.some(tardy => {
             const tardyDateStr = tardy.date instanceof Date ? formatDate(tardy.date) : String(tardy.date);
             return tardyDateStr === todayStr;
           });
         });
-        
+
         if (studentsWithTardiesToday.length > 1) {
-          familiesWithMultipleTardies.add(salutation);
+          familiesWithMultipleTardies.add(familyKey);
         }
       });
     } else {
-      Object.entries(familyGroups).forEach(([salutation, students]) => {
+      Object.entries(familyGroups).forEach(([familyKey, students]) => {
         if (students.length > 1) {
-          familiesWithMultipleTardies.add(salutation);
+          familiesWithMultipleTardies.add(familyKey);
         }
       });
     }
@@ -447,12 +476,13 @@ function generateEmailDataWithNewTracker(reportData, useThreshold, thresholdValu
       }
       
       const directoryInfo = studentDirectory[student.studentId] || {};
-      const salutationKey = directoryInfo.combinedSalutations || student.parentName || 'Unknown Parent';
-      
+      const familyKey = directoryInfo.parentId || `student:${student.studentId}`;
+      const salutation = directoryInfo.combinedSalutations || student.parentName || 'Unknown Parent';
+
       const studentGrade = student.grade || directoryInfo.grade || 'Unknown';
-      const isEarlyGrade = earlyGrades.includes(studentGrade);
-      
-      if (isEarlyGrade && !familiesWithMultipleTardies.has(salutationKey)) {
+      const isEarlyGrade = /^(Beg|PreK)\b/i.test(studentGrade);
+
+      if (isEarlyGrade && !familiesWithMultipleTardies.has(familyKey)) {
         skippedStudents.push({
           student: student,
           reason: `Early grade (${studentGrade}) with no siblings late`,
@@ -482,8 +512,10 @@ function generateEmailDataWithNewTracker(reportData, useThreshold, thresholdValu
       }
       
       const recentEmailCheck = wasStudentRecentlyEmailed(student.studentId, dayWindow);
-      const hasOverride = hasOverrideFlag(student.studentId);
-      
+      const hasOverride = recentEmailCheck.wasEmailed
+        ? hasOverrideFlag(student.studentId)
+        : false;
+
       if (recentEmailCheck.wasEmailed && !hasOverride) {
         skippedStudents.push({
           student: student,
@@ -496,6 +528,7 @@ function generateEmailDataWithNewTracker(reportData, useThreshold, thresholdValu
       
       const enhancedStudent = {
         ...student,
+        parentId: directoryInfo.parentId || '',
         firstName: directoryInfo.firstName || student.studentName.split(' ')[0] || '',
         lastName: directoryInfo.lastName || student.studentName.split(' ').slice(1).join(' ') || '',
         combinedSalutations: directoryInfo.combinedSalutations || '',
@@ -507,17 +540,18 @@ function generateEmailDataWithNewTracker(reportData, useThreshold, thresholdValu
         secondaryContactEmail: directoryInfo.secondaryContactEmail || ''
       };
       
-      if (!salutationGroups[salutationKey]) {
-        salutationGroups[salutationKey] = [];
+      if (!salutationGroups[familyKey]) {
+        salutationGroups[familyKey] = [];
       }
-      salutationGroups[salutationKey].push(enhancedStudent);
+      salutationGroups[familyKey].push(enhancedStudent);
       processedStudents.push(student);
     });
     
     const emailData = [];
     
-    for (const salutation in salutationGroups) {
-      const students = salutationGroups[salutation];
+    for (const familyKey in salutationGroups) {
+      const students = salutationGroups[familyKey];
+      const salutation = students[0].combinedSalutations || students[0].parentName || 'Unknown Parent';
       
       let maxTardies = Math.max(...students.map(s => s.tardies.length));
       let emailType = 'gentle';
@@ -564,30 +598,25 @@ function generateEmailDataWithNewTracker(reportData, useThreshold, thresholdValu
     };
     
   } catch (error) {
-    return {
-      emailData: [],
-      skippedStudents: [],
-      processedStudents: [],
-      todayOnlyCount: 0,
-      summary: { totalStudents: 0, emailsToGenerate: 0, skippedCount: 0 }
-    };
+    console.error('Error generating email data:', error);
+    throw error;
   }
 }
 
 function buildFamilyGroups(students, studentDirectory) {
   const familyGroups = {};
-  
+
   students.forEach(student => {
     const directoryInfo = studentDirectory[student.studentId] || {};
-    const salutationKey = directoryInfo.combinedSalutations || student.parentName || 'Unknown Parent';
-    
-    if (!familyGroups[salutationKey]) {
-      familyGroups[salutationKey] = [];
+    const familyKey = directoryInfo.parentId || `student:${student.studentId}`;
+
+    if (!familyGroups[familyKey]) {
+      familyGroups[familyKey] = [];
     }
-    
-    familyGroups[salutationKey].push(student);
+
+    familyGroups[familyKey].push(student);
   });
-  
+
   return familyGroups;
 }
 
@@ -668,7 +697,7 @@ function createEmailDocumentWithSkipped(emailData, skippedStudents, originalShee
     
     body.appendParagraph('');
     body.appendParagraph(`Emails to send: ${emailData.length}`);
-    body.appendParagraph(`Students skipped (recently emailed): ${skippedStudents.length}`);
+    body.appendParagraph(`Students skipped: ${skippedStudents.length}`);
     
     if (emailData.length > 0) {
       body.appendParagraph('');
@@ -710,7 +739,7 @@ function createEmailDocumentWithSkipped(emailData, skippedStudents, originalShee
     
     if (skippedStudents.length > 0) {
       body.appendParagraph('');
-      const skippedHeader = body.appendParagraph('STUDENTS SKIPPED (Recently Emailed)');
+      const skippedHeader = body.appendParagraph('STUDENTS SKIPPED');
       skippedHeader.setHeading(DocumentApp.ParagraphHeading.HEADING2);
       skippedHeader.editAsText().setForegroundColor('#ea4335');
       
@@ -836,9 +865,11 @@ function markEmailsAsSentInTracker(reportDateRange) {
   let updatedCount = 0;
   
   for (let i = 1; i < data.length; i++) {
-    const [studentId, studentName, recordReportRange, dateGenerated, emailSent, dateSent, override, notes] = data[i];
-    
-    if (recordReportRange === reportDateRange && emailSent !== true && !notes.includes('SKIPPED:')) {
+    const [studentId, studentName, recordReportRange, dateGenerated, emailSent, dateSent, override, neverSend, notes] = data[i];
+
+    if (recordReportRange === reportDateRange &&
+        emailSent !== true &&
+        !String(notes || '').includes('SKIPPED:')) {
       trackerSheet.getRange(i + 1, 5).setValue(true);
       trackerSheet.getRange(i + 1, 6).setValue(currentDate);
       updatedCount++;
@@ -872,7 +903,7 @@ function generateEmailActivitySummary(days = 30) {
   const recentActivity = [];
   
   for (let i = 1; i < data.length; i++) {
-    const [studentId, studentName, reportRange, dateGenerated, emailSent, dateSent, override, notes] = data[i];
+    const [studentId, studentName, reportRange, dateGenerated, emailSent, dateSent, override, neverSend, notes] = data[i];
     const genDate = new Date(dateGenerated);
     
     if (genDate >= cutoffDate) {
@@ -993,7 +1024,7 @@ function addReportToTracker(formData) {
         dateSent = new Date();
         break;
       case 'skipped':
-        statusNotes = 'Manually added - emails skipped';
+        statusNotes = 'SKIPPED: Manually added - emails skipped';
         emailSentStatus = false;
         break;
       case 'pending':
@@ -1020,21 +1051,24 @@ function addReportToTracker(formData) {
           emailSentStatus,
           dateSent,
           false,
+          isStudentNeverSend(student.studentId),
           statusNotes
         ];
         
         trackerSheet.appendRow(row);
         
         const lastRow = trackerSheet.getLastRow();
-        const emailSentCell = trackerSheet.getRange(lastRow, 5);
-        const overrideCell = trackerSheet.getRange(lastRow, 7);
-        
+        const emailSentCell = trackerSheet.getRange(lastRow, EMAIL_TRACKER.EMAIL_SENT + 1);
+        const overrideCell = trackerSheet.getRange(lastRow, EMAIL_TRACKER.OVERRIDE + 1);
+        const neverSendCell = trackerSheet.getRange(lastRow, EMAIL_TRACKER.NEVER_SEND + 1);
+
         const checkboxValidation = SpreadsheetApp.newDataValidation()
           .requireCheckbox()
           .build();
-        
+
         emailSentCell.setDataValidation(checkboxValidation);
         overrideCell.setDataValidation(checkboxValidation);
+        neverSendCell.setDataValidation(checkboxValidation);
         
         studentsAdded++;
         

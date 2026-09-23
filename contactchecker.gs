@@ -250,13 +250,13 @@ function createParentContactInconsistencyReport(ss, issues) {
   
   if (reportData.length > 0) {
     reportSheet.getRange(2, 1, reportData.length, headers.length).setValues(reportData);
+    reportSheet.getRange(2, 5, reportData.length, 1).setWrap(true);
+    reportSheet.getRange(2, 8, reportData.length, 1).setWrap(true);
   }
-  
+
   // Formatting
   reportSheet.setFrozenRows(1);
   reportSheet.autoResizeColumns(1, headers.length);
-  reportSheet.getRange(2, 5, reportData.length, 1).setWrap(true);
-  reportSheet.getRange(2, 8, reportData.length, 1).setWrap(true);
   
   // Alternating row colors
   for (var i = 2; i <= reportData.length + 1; i++) {
@@ -445,8 +445,10 @@ function generateParentContactFullReport() {
     ]);
   }
   
-  summarySheet.getRange(2, 1, summaryData.length, headers.length).setValues(summaryData);
-  
+  if (summaryData.length > 0) {
+    summarySheet.getRange(2, 1, summaryData.length, headers.length).setValues(summaryData);
+  }
+
   // Formatting
   summarySheet.setFrozenRows(1);
   summarySheet.autoResizeColumns(1, headers.length);

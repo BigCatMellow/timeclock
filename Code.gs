@@ -7,8 +7,18 @@ const CONFIG = {
   TIMEZONE: 'America/New_York', // Update to your timezone
   DATE_FORMAT: 'MM/dd/yyyy',
   TIME_FORMAT: 'hh:mm a',
-  HEADERS: ['Date', 'Time', 'Status', 'Student Name', 'Parent Name', 'Student ID'], // Added Student ID
-  SANITIZE_REGEX: /[^\w\s'-]/g,
+  HEADERS: ['Date', 'Time', 'Status', 'Student Name', 'Parent Name', 'Student ID', 'Returning', 'Logged', 'Bus'],
+  STUDENT_DATA_HEADERS: {
+    HOME_ROOM: 'Homeroom Section',
+    FIRST: 'First',
+    NICKNAME: 'Nickname',
+    LAST: 'Last',
+    FULL_NAME: 'First Last',
+    STUDENT_ID: 'Student ID',
+    CARPOOL_ID: 'Carpool ID',
+    BUS_ROUTE: 'Bus Route',
+    ACTIVE: 'Active'
+  },
   MAX_BATCH_SIZE: 1000,
   CACHE_DURATION: 300 // 5 minutes
 };
@@ -48,9 +58,16 @@ const Logger = {
 
 // 4. VALIDATION UTILITIES
 const Validator = {
-  sanitize(text) {
-    if (typeof text !== 'string') return '';
-    return text.replace(CONFIG.SANITIZE_REGEX, '').trim();
+  sanitize(value) {
+    if (value === null || value === undefined) return '';
+    // Preserve Unicode names/diacritics. Only remove control characters and trim.
+    return String(value).replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  },
+
+  safeCellText(value) {
+    const cleaned = this.sanitize(value);
+    // Prevent user-entered text from being interpreted as a spreadsheet formula.
+    return /^[=+@]/.test(cleaned) ? "'" + cleaned : cleaned;
   },
   
   validateStudentName(name) {
@@ -121,9 +138,13 @@ const CacheManager = {
   
   clear() {
     try {
-      this.cache.removeAll();
+      this.cache.removeAll([
+        'all_students',
+        `logo_${CONFIG.LOGO_FILE_ID}`
+      ]);
     } catch (error) {
       Logger.warn('Cache clear error', { error: error.message });
+      throw error;
     }
   }
 };
@@ -199,88 +220,73 @@ const SpreadsheetManager = {
   }
 },
   
-  batchWrite(sheet, data) {
-  if (!data || !data.length) return;
+  batchWrite(sheet, data, busRoutes) {
+    if (!data || !data.length) return;
 
-  try {
     if (data.length > CONFIG.MAX_BATCH_SIZE) {
+      throw new AppError('Batch size too large', ErrorCodes.INVALID_DATA);
+    }
+
+    const lock = LockService.getScriptLock();
+
+    try {
+      lock.waitLock(10000);
+
+      const startRow = sheet.getLastRow() + 1;
+      const numRows = data.length;
+      const numCols = data[0].length;
+
+      // Rows are written as A:F, including the authoritative Student ID.
+      sheet.getRange(startRow, 1, numRows, numCols).setValues(data);
+
+      const returningFormulas = [];
+      const busValues = [];
+
+      for (let i = 0; i < numRows; i++) {
+        const rowNum = startRow + i;
+
+        // G — Returning
+        returningFormulas.push([
+          `=IF(AND(C${rowNum}="In",COUNTIFS($C$1:C${rowNum - 1},"Out",$A$1:A${rowNum - 1},A${rowNum},$F$1:F${rowNum - 1},F${rowNum},$D$1:D${rowNum - 1},D${rowNum})>0),"x","")`
+        ]);
+
+        // I — Bus. Snapshot the current route rather than relying on a fragile
+        // cross-sheet column formula.
+        busValues.push([
+          data[i][2] === 'Out' && busRoutes && busRoutes[i] ? busRoutes[i] : ''
+        ]);
+      }
+
+      sheet.getRange(startRow, 7, numRows, 1).setFormulas(returningFormulas);
+      sheet.getRange(startRow, 9, numRows, 1).setValues(busValues);
+      SpreadsheetApp.flush();
+
+      Logger.info('Batch write successful', {
+        startRow,
+        numRows,
+        numCols,
+        sheetName: sheet.getName()
+      });
+
+    } catch (error) {
+      Logger.error('Batch write failed', {
+        error,
+        dataLength: data.length
+      });
+
       throw new AppError(
-        'Batch size too large',
-        ErrorCodes.INVALID_DATA
+        'Failed to write data to sheet',
+        ErrorCodes.UNKNOWN_ERROR,
+        { cause: error.message }
       );
+    } finally {
+      try {
+        lock.releaseLock();
+      } catch (releaseError) {
+        Logger.warn('Failed to release write lock', { error: releaseError.message });
+      }
     }
-
-    const startRow = sheet.getLastRow() + 1;
-    const numRows = data.length;
-    const numCols = data[0].length;
-
-    // Write Date, Time, Status, Student Name, Parent Name
-    const dataRange = sheet.getRange(
-      startRow,
-      1,
-      numRows,
-      numCols
-    );
-
-    dataRange.setValues(data);
-
-    const studentIdFormulas = [];
-    const returningFormulas = [];
-    const busFormulas = [];
-
-    for (let i = 0; i < numRows; i++) {
-      const rowNum = startRow + i;
-
-      // F — Student ID
-      studentIdFormulas.push([
-        `=IFERROR(INDEX('${CONFIG.STUDENT_DATA_SHEET}'!F:F,MATCH(D${rowNum},'${CONFIG.STUDENT_DATA_SHEET}'!E:E,0)),"Not Found")`
-      ]);
-
-      // G — Returning
-      returningFormulas.push([
-        `=IF(AND(C${rowNum}="In",COUNTIFS($C$1:C${rowNum - 1},"Out",$A$1:A${rowNum - 1},A${rowNum},$F$1:F${rowNum - 1},F${rowNum})>0),"x","")`
-      ]);
-
-      // I — Bus
-      busFormulas.push([
-        `=IF(C${rowNum}="Out",IFERROR(INDEX(\'${CONFIG.STUDENT_DATA_SHEET}\'!H:H,MATCH(F${rowNum},\'${CONFIG.STUDENT_DATA_SHEET}\'!F:F,0)),""),"")`
-      ]);
-    }
-
-    // F — Student ID
-    sheet
-      .getRange(startRow, 6, numRows, 1)
-      .setFormulas(studentIdFormulas);
-
-    // G — Returning
-    sheet
-      .getRange(startRow, 7, numRows, 1)
-      .setFormulas(returningFormulas);
-
-    // I — Bus
-    sheet
-      .getRange(startRow, 9, numRows, 1)
-      .setFormulas(busFormulas);
-
-    Logger.info('Batch write successful', {
-      startRow,
-      numRows,
-      numCols,
-      sheetName: sheet.getName()
-    });
-
-  } catch (error) {
-    Logger.error('Batch write failed', {
-      error,
-      dataLength: data.length
-    });
-
-    throw new AppError(
-      'Failed to write data to sheet',
-      ErrorCodes.UNKNOWN_ERROR
-    );
   }
-}
 };
 
 // 7. MAIN FUNCTIONS
@@ -297,7 +303,6 @@ function doGet(e) {
 
     return template.evaluate()
       .setTitle(title)
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
       
   } catch (error) {
@@ -344,120 +349,178 @@ function loadImageBytes() {
   }
 }
 
+function getHeaderMap_(headers) {
+  const map = {};
+  headers.forEach((header, index) => {
+    map[String(header || '').trim().toLowerCase()] = index;
+  });
+  return map;
+}
+
+function getStudentRoster_(includeInactive) {
+  const sheet = SpreadsheetManager.getActiveSpreadsheet().getSheetByName(CONFIG.STUDENT_DATA_SHEET);
+
+  if (!sheet) {
+    throw new AppError('Student Data sheet not found', ErrorCodes.SHEET_NOT_FOUND);
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const headerMap = getHeaderMap_(data[0]);
+  const column = (name) => headerMap[String(name).toLowerCase()];
+
+  Object.values(CONFIG.STUDENT_DATA_HEADERS).forEach((header) => {
+    if (column(header) === undefined) {
+      throw new AppError(
+        `Student Data is missing required column: ${header}`,
+        ErrorCodes.INVALID_DATA
+      );
+    }
+  });
+
+  const activeCol = column(CONFIG.STUDENT_DATA_HEADERS.ACTIVE);
+  const isActiveValue = (value) => {
+    if (activeCol === undefined) return true;
+    if (value === false || value === 0) return false;
+    const normalized = String(value === undefined ? '' : value).trim().toLowerCase();
+    return !['false', 'no', 'inactive', '0'].includes(normalized);
+  };
+
+  return data.slice(1)
+    .filter(row => row[column(CONFIG.STUDENT_DATA_HEADERS.FULL_NAME)])
+    .filter(row => includeInactive || isActiveValue(row[activeCol]))
+    .map(row => ({
+      homeRoom: Validator.sanitize(row[column(CONFIG.STUDENT_DATA_HEADERS.HOME_ROOM)] || ''),
+      firstName: Validator.sanitize(row[column(CONFIG.STUDENT_DATA_HEADERS.FIRST)] || ''),
+      nickname: Validator.sanitize(row[column(CONFIG.STUDENT_DATA_HEADERS.NICKNAME)] || ''),
+      lastName: Validator.sanitize(row[column(CONFIG.STUDENT_DATA_HEADERS.LAST)] || ''),
+      fullName: Validator.sanitize(row[column(CONFIG.STUDENT_DATA_HEADERS.FULL_NAME)] || ''),
+      studentId: Validator.sanitize(row[column(CONFIG.STUDENT_DATA_HEADERS.STUDENT_ID)] || ''),
+      carpoolId: Validator.sanitize(row[column(CONFIG.STUDENT_DATA_HEADERS.CARPOOL_ID)] || ''),
+      busRoute: Validator.sanitize(row[column(CONFIG.STUDENT_DATA_HEADERS.BUS_ROUTE)] || ''),
+      active: activeCol === undefined ? true : isActiveValue(row[activeCol])
+    }))
+    .filter(student => student.fullName && student.studentId);
+}
+
+function resolveStudentSelections_(selections) {
+  if (!Array.isArray(selections) || selections.length === 0) {
+    throw new AppError('No students provided', ErrorCodes.VALIDATION_ERROR);
+  }
+
+  const roster = getStudentRoster_(true);
+  const byId = {};
+  const byName = {};
+
+  roster.forEach(student => {
+    byId[student.studentId] = student;
+    byName[student.fullName.toLowerCase()] = student;
+  });
+
+  return selections.map(selection => {
+    const isObjectSelection = selection && typeof selection === 'object';
+    const rawSelection = isObjectSelection ? '' : Validator.sanitize(selection);
+    const suppliedId = isObjectSelection
+      ? Validator.sanitize(selection.studentId || '')
+      : (/^\d+$/.test(rawSelection) ? rawSelection : '');
+
+    const suppliedName = isObjectSelection
+      ? Validator.sanitize(selection.fullName || '')
+      : (suppliedId ? '' : rawSelection);
+
+    if (suppliedId && byId[suppliedId]) {
+      return byId[suppliedId];
+    }
+
+    if (suppliedName && byName[suppliedName.toLowerCase()]) {
+      return byName[suppliedName.toLowerCase()];
+    }
+
+    // Preserve the manual-add fallback for students not yet present in Student Data.
+    if (suppliedName) {
+      return {
+        fullName: Validator.validateStudentName(suppliedName),
+        studentId: 'Not Found',
+        active: true
+      };
+    }
+
+    throw new AppError('Student selection could not be resolved', ErrorCodes.VALIDATION_ERROR);
+  });
+}
+
 function getAllStudents() {
   const cacheKey = 'all_students';
-  
+
   try {
-    // Try cache first
-    let students = CacheManager.get(cacheKey);
-    if (students) {
-      Logger.info('Students loaded from cache', { count: students.length });
-      return students;
+    const cached = CacheManager.get(cacheKey);
+    if (cached) {
+      Logger.info('Students loaded from cache', { count: cached.length });
+      return cached;
     }
-    
-    // Load from sheet
-    Logger.info('Loading students from sheet');
-    const sheet = SpreadsheetManager.getActiveSpreadsheet().getSheetByName(CONFIG.STUDENT_DATA_SHEET);
-    
-    if (!sheet) {
-      throw new AppError('Student Data sheet not found', ErrorCodes.SHEET_NOT_FOUND);
-    }
-    
-    const data = sheet.getDataRange().getValues();
-    
-    if (data.length <= 1) {
-      Logger.warn('No student data found');
-      return [];
-    }
-    
-    // Skip header row and process data
-    students = data.slice(1)
-      .filter(row => row[4]) // Must have full name
-      .map(row => ({
-        homeRoom: Validator.sanitize(row[0] || ''),
-        firstName: Validator.sanitize(row[1] || ''),
-        nickname: Validator.sanitize(row[2] || ''), // ADDED: Column C (index 2)
-        lastName: Validator.sanitize(row[3] || ''),
-        fullName: Validator.sanitize(row[4] || ''),
-        studentId: Validator.sanitize(row[5] || '')
-      }))
-      .filter(student => student.fullName.length > 0)
+
+    const students = getStudentRoster_(false)
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
-    
+
     Logger.info('Students loaded successfully', { count: students.length });
-    
-    // Cache results
     CacheManager.set(cacheKey, students);
-    
     return students;
-    
+
   } catch (error) {
     Logger.error('getAllStudents failed', error);
-    
-    if (error instanceof AppError) {
-      throw error;
-    }
-    
+    if (error instanceof AppError) throw error;
     throw new AppError('Unable to load student list', ErrorCodes.UNKNOWN_ERROR);
   }
 }
 
-function logCheckInOutToSheet(monthYear, status, parentName, studentNames) {
+function logCheckInOutToSheet(monthYear, status, parentName, studentSelections) {
   try {
-    // Validation
     const validatedSheetName = Validator.validateSheetName(monthYear);
     const validatedStatus = Validator.validateStatus(status);
-    const validatedParent = Validator.validateParentName(parentName);
-    
-    if (!Array.isArray(studentNames) || studentNames.length === 0) {
-      throw new AppError('No students provided', ErrorCodes.VALIDATION_ERROR);
-    }
-    
-    const validatedStudents = studentNames.map(name => Validator.validateStudentName(name));
-    
+    const validatedParent = Validator.safeCellText(Validator.validateParentName(parentName));
+    const validatedStudents = resolveStudentSelections_(studentSelections);
+
     Logger.info('Processing check-in/out', {
       sheet: validatedSheetName,
       status: validatedStatus,
       parent: validatedParent,
       studentCount: validatedStudents.length
     });
-    
-    // Get or create sheet
+
     const sheet = SpreadsheetManager.getOrCreateSheet(validatedSheetName);
-    
-    // Prepare data
     const now = new Date();
-    const tz = Session.getScriptTimeZone();
-    const date = Utilities.formatDate(now, tz, CONFIG.DATE_FORMAT);
-    const time = Utilities.formatDate(now, tz, CONFIG.TIME_FORMAT);
-    
-    // Prepare rows with 5 columns (Student ID will be added by formula)
-    const rows = validatedStudents.map(studentName => [
+    const date = Utilities.formatDate(now, CONFIG.TIMEZONE, CONFIG.DATE_FORMAT);
+    const time = Utilities.formatDate(now, CONFIG.TIMEZONE, CONFIG.TIME_FORMAT);
+
+    const rows = validatedStudents.map(student => [
       date,
       time,
       validatedStatus,
-      studentName,
-      validatedParent
+      student.fullName,
+      validatedParent,
+      student.studentId
     ]);
-    
-    // Write to sheet (the batchWrite function will handle adding the Student ID formulas)
-    SpreadsheetManager.batchWrite(sheet, rows);
-    
-    // Clear relevant caches
-    CacheManager.remove('all_students');
-    
+
+    SpreadsheetManager.batchWrite(
+      sheet,
+      rows,
+      validatedStudents.map(student => student.busRoute || '')
+    );
+
     Logger.info('Check-in/out completed successfully', {
       studentsProcessed: validatedStudents.length,
       timestamp: now.toISOString()
     });
-    
+
+    return {
+      success: true,
+      count: validatedStudents.length
+    };
+
   } catch (error) {
     Logger.error('logCheckInOutToSheet failed', error);
-    
-    if (error instanceof AppError) {
-      throw error;
-    }
-    
+    if (error instanceof AppError) throw error;
     throw new AppError('Failed to record check-in/out', ErrorCodes.UNKNOWN_ERROR);
   }
 }
@@ -469,11 +532,11 @@ function logCheckInOutToSheet(monthYear, status, parentName, studentNames) {
  * Large groups are automatically written in chunks so the UI has no practical
  * student-count limit.
  */
-function logManualCheckInOut(status, manualDate, manualTime, studentNames) {
+function logManualCheckInOut(status, manualDate, manualTime, studentSelections) {
   try {
     const validatedStatus = Validator.validateStatus(status);
 
-    if (!Array.isArray(studentNames) || studentNames.length === 0) {
+    if (!Array.isArray(studentSelections) || studentSelections.length === 0) {
       throw new AppError('No students provided', ErrorCodes.VALIDATION_ERROR);
     }
 
@@ -506,7 +569,7 @@ function logManualCheckInOut(status, manualDate, manualTime, studentNames) {
       throw new AppError('Invalid calendar date.', ErrorCodes.VALIDATION_ERROR);
     }
 
-    const validatedStudents = studentNames.map(name => Validator.validateStudentName(name));
+    const validatedStudents = resolveStudentSelections_(studentSelections);
     const sheetName = String(month).padStart(2, '0') + '-' + year;
     const validatedSheetName = Validator.validateSheetName(sheetName);
 
@@ -521,12 +584,13 @@ function logManualCheckInOut(status, manualDate, manualTime, studentNames) {
     const sheet = SpreadsheetManager.getOrCreateSheet(validatedSheetName);
     const manualSource = 'Manual Entry';
 
-    const rows = validatedStudents.map(studentName => [
+    const rows = validatedStudents.map(student => [
       formattedDate,
       formattedTime,
       validatedStatus,
-      studentName,
-      manualSource
+      student.fullName,
+      manualSource,
+      student.studentId
     ]);
 
     // SpreadsheetManager protects individual writes at MAX_BATCH_SIZE.
@@ -534,7 +598,10 @@ function logManualCheckInOut(status, manualDate, manualTime, studentNames) {
     for (let start = 0; start < rows.length; start += CONFIG.MAX_BATCH_SIZE) {
       SpreadsheetManager.batchWrite(
         sheet,
-        rows.slice(start, start + CONFIG.MAX_BATCH_SIZE)
+        rows.slice(start, start + CONFIG.MAX_BATCH_SIZE),
+        validatedStudents
+          .slice(start, start + CONFIG.MAX_BATCH_SIZE)
+          .map(student => student.busRoute || '')
       );
     }
 
@@ -566,7 +633,7 @@ function logManualCheckInOut(status, manualDate, manualTime, studentNames) {
 }
 
 // 8. UTILITY FUNCTIONS FOR MAINTENANCE
-function clearCache() {
+function clearCache_() {
   try {
     CacheManager.clear();
     Logger.info('Cache cleared successfully');
@@ -577,13 +644,13 @@ function clearCache() {
   }
 }
 
-function getSystemInfo() {
+function getSystemInfo_() {
   try {
     const ss = SpreadsheetManager.getActiveSpreadsheet();
     return {
       spreadsheetId: ss.getId(),
       spreadsheetName: ss.getName(),
-      timezone: Session.getScriptTimeZone(),
+      timezone: CONFIG.TIMEZONE,
       userEmail: Session.getActiveUser().getEmail(),
       timestamp: new Date().toISOString(),
       version: '2.1.0' // Updated version
@@ -595,7 +662,7 @@ function getSystemInfo() {
 }
 
 // 9. PERFORMANCE MONITORING FUNCTION
-function getPerformanceMetrics() {
+function getPerformanceMetrics_() {
   try {
     const ss = SpreadsheetManager.getActiveSpreadsheet();
     const sheets = ss.getSheets();
@@ -609,14 +676,14 @@ function getPerformanceMetrics() {
     
     // Get student count
     try {
-      const students = getAllStudents();
+      const students = getStudentRoster_(false);
       metrics.totalStudents = students.length;
     } catch (error) {
       metrics.totalStudents = 'error';
     }
     
     // Get recent check-ins/outs
-    const currentMonth = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MM-yyyy');
+    const currentMonth = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'MM-yyyy');
     const currentSheet = ss.getSheetByName(currentMonth);
     
     if (currentSheet) {
@@ -635,7 +702,7 @@ function getPerformanceMetrics() {
 }
 
 // 10. HELPER FUNCTION TO TEST STUDENT ID LOOKUP
-function testStudentIdLookup() {
+function testStudentIdLookup_() {
   try {
     const ss = SpreadsheetManager.getActiveSpreadsheet();
     const studentDataSheet = ss.getSheetByName(CONFIG.STUDENT_DATA_SHEET);

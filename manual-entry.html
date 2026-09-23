@@ -316,7 +316,7 @@
     var state = {
       allStudents: [],
       filteredStudents: [],
-      selectedStudents: new Set(),
+      selectedStudents: new Map(),
       mode: 'in',
       submitting: false
     };
@@ -368,13 +368,13 @@
       el.results.addEventListener('click', function(e) {
         var row = e.target.closest('.student-row');
         if (!row) return;
-        toggleStudent(row.dataset.name);
+        toggleStudent(row.dataset.id);
       });
 
       el.selectedList.addEventListener('click', function(e) {
         var btn = e.target.closest('.remove-btn');
         if (!btn) return;
-        state.selectedStudents.delete(btn.dataset.name);
+        state.selectedStudents.delete(btn.dataset.key);
         renderSelection();
         renderResults();
       });
@@ -439,43 +439,60 @@
       }
 
       el.results.innerHTML = state.filteredStudents.map(function(student) {
-        var selected = state.selectedStudents.has(student.fullName);
+        var key = 'id:' + student.studentId;
+        var selected = state.selectedStudents.has(key);
         var nickname = student.nickname && student.nickname !== '-' && student.nickname !== student.firstName
           ? ' (' + escapeHtml(student.nickname) + ')' : '';
+
         return '<button type="button" class="student-row' +
           (selected ? ' selected ' + state.mode : '') +
-          '" data-name="' + escapeAttr(student.fullName) + '">' +
+          '" data-id="' + escapeAttr(student.studentId) + '">' +
           escapeHtml(student.fullName) + nickname +
           (selected ? ' ✓' : '') +
           '</button>';
       }).join('');
     }
 
-    function toggleStudent(name) {
-      if (state.selectedStudents.has(name)) state.selectedStudents.delete(name);
-      else state.selectedStudents.add(name);
+    function toggleStudent(studentId) {
+      var key = 'id:' + studentId;
+      if (state.selectedStudents.has(key)) {
+        state.selectedStudents.delete(key);
+      } else {
+        var student = state.allStudents.find(function(item) {
+          return String(item.studentId) === String(studentId);
+        });
+        if (!student) return;
+        state.selectedStudents.set(key, {
+          studentId: String(student.studentId),
+          fullName: student.fullName
+        });
+      }
+
       renderSelection();
       renderResults();
       el.search.focus();
     }
 
     function renderSelection() {
-      var names = Array.from(state.selectedStudents);
-      el.selectedCount.textContent = names.length;
+      var selections = Array.from(state.selectedStudents.entries());
+      el.selectedCount.textContent = selections.length;
 
-      if (!names.length) {
+      if (!selections.length) {
         el.selectedList.innerHTML = '<div class="empty-selected">No students selected yet.</div>';
       } else {
-        el.selectedList.innerHTML = names.map(function(name) {
+        el.selectedList.innerHTML = selections.map(function(entry) {
+          var key = entry[0];
+          var student = entry[1];
           return '<div class="selected-item">' +
-            '<div class="selected-name">' + escapeHtml(name) + '</div>' +
-            '<button type="button" class="remove-btn" data-name="' + escapeAttr(name) + '" aria-label="Remove ' + escapeAttr(name) + '">&times;</button>' +
+            '<div class="selected-name">' + escapeHtml(student.fullName) + '</div>' +
+            '<button type="button" class="remove-btn" data-key="' + escapeAttr(key) +
+            '" aria-label="Remove ' + escapeAttr(student.fullName) + '">&times;</button>' +
             '</div>';
         }).join('');
       }
 
-      el.submit.textContent = 'Submit ' + names.length + ' Student' + (names.length === 1 ? '' : 's');
-      el.clear.disabled = names.length === 0 || state.submitting;
+      el.submit.textContent = 'Submit ' + selections.length + ' Student' + (selections.length === 1 ? '' : 's');
+      el.clear.disabled = selections.length === 0 || state.submitting;
       updateSubmitState();
     }
 
@@ -489,7 +506,8 @@
     function submitEntries() {
       if (state.submitting || el.submit.disabled) return;
 
-      var names = Array.from(state.selectedStudents);
+      var selections = Array.from(state.selectedStudents.values());
+      var names = selections.map(function(student) { return student.fullName; });
       var verb = state.mode === 'in' ? 'check in' : 'check out';
       var confirmed = window.confirm(
         'Manually ' + verb + ' ' + names.length + ' student' + (names.length === 1 ? '' : 's') +
@@ -524,7 +542,7 @@
           state.mode === 'in' ? 'In' : 'Out',
           el.date.value,
           el.time.value,
-          names
+          selections
         );
     }
 

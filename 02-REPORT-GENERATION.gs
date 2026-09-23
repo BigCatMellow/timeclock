@@ -81,12 +81,12 @@ function processSheetForTardiesWithTimeFilter(sheet, startDate, endDate, searchI
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
-  const studentGrades = getStudentGrades();
+  const studentGrades = getStudentGrades_();
   const dailyEntries = {};
   const tardies = [];
 
   for (let i = 1; i < data.length; i++) {
-    const [dateStr, timeStr, status, studentName, parentName, studentId] = data[i];
+    const [dateStr, timeStr, status, studentName, parentName, studentId, returning] = data[i];
 
     if (!dateStr || !status || !studentName || !['In', 'Out'].includes(status)) {
       continue;
@@ -97,40 +97,39 @@ function processSheetForTardiesWithTimeFilter(sheet, startDate, endDate, searchI
       continue;
     }
 
-    if (searchId && studentId != searchId) continue;
-
-    // Time filtering
-    if (!isTimeInRange(timeStr, startTime, endTime)) {
-      continue;
-    }
+    const normalizedStudentId = studentId ? String(studentId).trim() : '';
+    if (searchId && normalizedStudentId !== String(searchId).trim()) continue;
 
     const dateKey = formatDate(rowDate);
-    const studentKey = `${studentName}_${dateKey}`;
+    const identityKey = normalizedStudentId || String(studentName).trim().toLowerCase();
+    const studentKey = `${identityKey}_${dateKey}`;
 
-    if (!dailyEntries[studentKey]) {
-      dailyEntries[studentKey] = [];
-    }
+    if (!dailyEntries[studentKey]) dailyEntries[studentKey] = [];
 
     dailyEntries[studentKey].push({
       time: timeStr,
       status: status,
       parentName: parentName,
       studentName: studentName,
-      studentId: studentId || 'Not Found',
-      grade: studentGrades[studentId] || 'Unknown',
-      date: rowDate
+      studentId: normalizedStudentId || 'Not Found',
+      grade: studentGrades[normalizedStudentId] || 'Unknown',
+      date: rowDate,
+      returning: String(returning || '').trim().toLowerCase() === 'x'
     });
   }
 
   for (const studentKey in dailyEntries) {
     const entries = dailyEntries[studentKey];
-    
-    entries.sort((a, b) => {
-      return convertTimeForSort(a.time).localeCompare(convertTimeForSort(b.time));
-    });
 
-    if (entries[0].status === 'In') {
-      tardies.push(entries[0]);
+    entries.sort((a, b) => convertTimeToMinutes(a.time) - convertTimeToMinutes(b.time));
+
+    // A legitimate late arrival is the first recorded event of the day and must
+    // be an In. If the first event is Out, a later In is a return, not a tardy.
+    const firstEntry = entries[0];
+    if (!firstEntry || firstEntry.status !== 'In' || firstEntry.returning) continue;
+
+    if (isTimeInRange(firstEntry.time, startTime, endTime)) {
+      tardies.push(firstEntry);
     }
   }
 
@@ -252,8 +251,10 @@ function createGroupedTardyReportSheetWithTimeFilter(groupedById, startDate, end
   reportSheet.setColumnWidth(5, 100);
   reportSheet.setColumnWidth(6, 200);
 
-  const timeColumn = reportSheet.getRange(8, 4, row - 7, 1);
-  timeColumn.setNumberFormat('@');
+  if (row > 8) {
+    const timeColumn = reportSheet.getRange(8, 5, row - 8, 1);
+    timeColumn.setNumberFormat('@');
+  }
 
   return sheetName;
 }
@@ -292,15 +293,15 @@ function groupByIdAndFilter(tardyInstances, minOccurrences) {
 // STUDENT HISTORY REPORT
 function generateStudentHistoryReport(formData) {
   try {
-    const studentIdentifier = String(formData.studentIdentifier).trim();
-    
+    const studentIdentifier = String(formData.studentIdentifier || '').trim();
+
     if (!studentIdentifier) {
       return { success: false, error: 'Please provide a student name or ID' };
     }
-    
+
     const startDate = formData.startDate ? new Date(formData.startDate + 'T00:00:00') : null;
     const endDate = formData.endDate ? new Date(formData.endDate + 'T23:59:59') : null;
-    
+
     let allowedStatuses = [];
     if (formData.filterBoth) {
       allowedStatuses = ['In', 'Out'];
@@ -308,119 +309,127 @@ function generateStudentHistoryReport(formData) {
       if (formData.filterIn) allowedStatuses.push('In');
       if (formData.filterOut) allowedStatuses.push('Out');
     }
-    
+
     if (allowedStatuses.length === 0) {
       return { success: false, error: 'Please select at least one entry type' };
     }
-    
+
+    const isNumericId = /^\d+$/.test(studentIdentifier);
+    let targetStudentId = isNumericId ? studentIdentifier : '';
+    let studentName = 'Unknown Student';
+
+    if (!isNumericId) {
+      const roster = getStudentRoster_(true);
+      const searchLower = studentIdentifier.toLowerCase();
+      const exactMatches = roster.filter(s => s.fullName.toLowerCase() === searchLower);
+      const matches = exactMatches.length
+        ? exactMatches
+        : roster.filter(s => s.fullName.toLowerCase().includes(searchLower));
+
+      if (matches.length === 0) {
+        return { success: false, error: `No student found for: ${studentIdentifier}` };
+      }
+
+      if (matches.length > 1) {
+        const choices = matches.slice(0, 5).map(s => `${s.fullName} (${s.studentId})`).join(', ');
+        return {
+          success: false,
+          error: `More than one student matches "${studentIdentifier}". Use the full name or Student ID. Matches: ${choices}`
+        };
+      }
+
+      targetStudentId = matches[0].studentId;
+      studentName = matches[0].fullName;
+    }
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const allSheets = ss.getSheets();
     const allEntries = [];
-    let studentName = 'Unknown Student';
-    let matchedStudentId = null;
-    
-    const isNumericId = /^\d+$/.test(studentIdentifier);
-    const searchLower = studentIdentifier.toLowerCase();
-    
+
     allSheets.forEach(sheet => {
       const sheetName = sheet.getName();
-      
-      if (!/^\d{2}-\d{4}$/.test(sheetName)) {
-        return;
-      }
-      
+      if (!/^\d{2}-\d{4}$/.test(sheetName)) return;
+
       const data = sheet.getDataRange().getValues();
-      
+
       for (let i = 1; i < data.length; i++) {
         const row = data[i];
         const rowStudentId = row[5] ? String(row[5]).trim() : '';
         const rowStudentName = row[3] ? String(row[3]).trim() : '';
-        
-        let isMatch = false;
-        
-        if (isNumericId && rowStudentId === studentIdentifier) {
-          isMatch = true;
-          matchedStudentId = rowStudentId;
+
+        if (rowStudentId !== targetStudentId) continue;
+
+        const rowDate = parseDate(row[0]);
+        const rowStatus = row[2];
+
+        if (startDate && rowDate && rowDate < startDate) continue;
+        if (endDate && rowDate && rowDate > endDate) continue;
+        if (!allowedStatuses.includes(rowStatus)) continue;
+
+        if (studentName === 'Unknown Student' && rowStudentName) {
+          studentName = rowStudentName;
         }
-        else if (!isNumericId && rowStudentName.toLowerCase().includes(searchLower)) {
-          isMatch = true;
-          matchedStudentId = rowStudentId;
-        }
-        
-        if (isMatch) {
-          const rowDate = parseDate(row[0]);
-          const rowStatus = row[2];
-          
-          if (startDate && rowDate && rowDate < startDate) continue;
-          if (endDate && rowDate && rowDate > endDate) continue;
-          
-          if (!allowedStatuses.includes(rowStatus)) continue;
-          
-          if (studentName === 'Unknown Student' && rowStudentName) {
-            studentName = rowStudentName;
-          }
-          
-          allEntries.push({
-            date: row[0],
-            time: row[1],
-            status: row[2],
-            studentName: rowStudentName,
-            parentName: row[4],
-            studentId: rowStudentId,
-            sheetName: sheetName
-          });
-        }
+
+        allEntries.push({
+          date: row[0],
+          time: row[1],
+          status: rowStatus,
+          studentName: rowStudentName,
+          parentName: row[4],
+          studentId: rowStudentId,
+          sheetName: sheetName
+        });
       }
     });
-    
+
     if (allEntries.length === 0) {
       let errorMsg = `No entries found for: ${studentIdentifier}`;
-      if (startDate || endDate) {
-        errorMsg += ` within the specified date range`;
-      }
-      if (!formData.filterBoth) {
-        errorMsg += ` for the selected entry types`;
-      }
+      if (startDate || endDate) errorMsg += ' within the specified date range';
+      if (!formData.filterBoth) errorMsg += ' for the selected entry types';
       return { success: false, error: errorMsg };
     }
-    
-    // Sort chronologically (oldest first)
+
     allEntries.sort((a, b) => {
       const dateA = parseDate(a.date);
       const dateB = parseDate(b.date);
       if (!dateA || !dateB) return 0;
-      return dateA - dateB;
+      const dateDiff = dateA - dateB;
+      if (dateDiff !== 0) return dateDiff;
+      return convertTimeToMinutes(a.time) - convertTimeToMinutes(b.time);
     });
-    
-    const dateRangeStr = startDate && endDate ? 
-      ` (${formatDate(startDate)} to ${formatDate(endDate)})` : 
-      (startDate ? ` (from ${formatDate(startDate)})` : 
-      (endDate ? ` (to ${formatDate(endDate)})` : ''));
-    
-    const filterStr = formData.filterBoth ? 'All Entries' : 
-      (formData.filterIn && formData.filterOut ? 'Check-Ins & Check-Outs' :
-      (formData.filterIn ? 'Check-Ins Only' : 'Check-Outs Only'));
-    
+
+    const dateRangeStr = startDate && endDate
+      ? ` (${formatDate(startDate)} to ${formatDate(endDate)})`
+      : (startDate
+        ? ` (from ${formatDate(startDate)})`
+        : (endDate ? ` (to ${formatDate(endDate)})` : ''));
+
+    const filterStr = formData.filterBoth
+      ? 'All Entries'
+      : (formData.filterIn && formData.filterOut
+        ? 'Check-Ins & Check-Outs'
+        : (formData.filterIn ? 'Check-Ins Only' : 'Check-Outs Only'));
+
     const sheetName = createStudentHistorySheet(
-      matchedStudentId || studentIdentifier, 
-      studentName, 
-      allEntries, 
-      dateRangeStr, 
+      targetStudentId,
+      studentName,
+      allEntries,
+      dateRangeStr,
       filterStr
     );
-    
+
     return {
       success: true,
       sheetName: sheetName,
       entryCount: allEntries.length,
       studentName: studentName
     };
-    
+
   } catch (error) {
     console.error('Error in generateStudentHistoryReport:', error);
-    return { 
-      success: false, 
-      error: 'Failed to generate report: ' + error.message 
+    return {
+      success: false,
+      error: 'Failed to generate report: ' + error.message
     };
   }
 }

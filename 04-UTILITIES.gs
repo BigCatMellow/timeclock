@@ -141,9 +141,13 @@ function formatTimeForDisplay(timeStr) {
 
 function convertTimeForSort(timeStr) {
   if (!timeStr) return '00:00';
-  
+
   try {
-    let time = timeStr.toLowerCase().trim();
+    if (timeStr instanceof Date) {
+      return `${String(timeStr.getHours()).padStart(2, '0')}:${String(timeStr.getMinutes()).padStart(2, '0')}`;
+    }
+
+    let time = String(timeStr).toLowerCase().trim();
     const isPM = time.includes('pm');
     time = time.replace(/[ap]m/gi, '').trim();
     
@@ -168,9 +172,9 @@ function convertTimeToMinutes(timeStr) {
     
     let cleanTime = String(timeStr).trim();
     
-    // Handle Date objects
+    // Handle Date objects directly.
     if (timeStr instanceof Date) {
-      cleanTime = timeStr.toTimeString().substring(0, 5);
+      return timeStr.getHours() * 60 + timeStr.getMinutes();
     }
     
     // Handle 24-hour format (HH:MM)
@@ -212,7 +216,7 @@ function convertTimeToMinutes(timeStr) {
 }
 
 // STUDENT DATA ACCESS
-function getStudentGrades() {
+function getStudentGrades_() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let dataSheet = ss.getSheetByName('Student Data');
@@ -265,78 +269,81 @@ function getStudentGrades() {
   }
 }
 
-function getStudentDirectory() {
+function getStudentDirectory_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let directorySheet = ss.getSheetByName('parents db');
-  
+  const directorySheet = ss.getSheetByName('parent db');
+
   if (!directorySheet) {
-    const alternativeNames = ['Parents DB', 'parents DB', 'Parents db', 'Parent Database', 'Parent DB', 'Parents'];
-    for (const name of alternativeNames) {
-      directorySheet = ss.getSheetByName(name);
-      if (directorySheet) break;
-    }
-  }
-  
-  if (!directorySheet) {
-    const allSheets = ss.getSheets();
-    for (const sheet of allSheets) {
-      const sheetName = sheet.getName().toLowerCase();
-      if (sheetName.includes('parent')) {
-        directorySheet = sheet;
-        break;
-      }
-    }
-  }
-  
-  if (!directorySheet) {
+    console.log('parent db sheet not found');
     return {};
   }
-  
+
   const data = directorySheet.getDataRange().getValues();
   if (data.length <= 1) return {};
-  
-  const headers = data[0].map(h => String(h).toLowerCase().trim());
-  
-  const studentIdCol = headers.findIndex(h => h.includes('student') && h.includes('id') || h === 'id');
-  const firstNameCol = headers.findIndex(h => h.includes('first') && h.includes('name') || h === 'first');
-  const lastNameCol = headers.findIndex(h => h.includes('last') && h.includes('name') || h === 'last');
-  const gradeCol = headers.findIndex(h => h.includes('homeroom') || h.includes('grade'));
-  
-  const salutationColumnIndex = 16;
-  const primaryContactNameIndex = 7;
-  const primaryContactEmailIndex = 9;
-  const primaryContactCellIndex = 10;
-  const secondaryContactNameIndex = 12;
-  const secondaryContactCellIndex = 14;
-  const secondaryContactEmailIndex = 15;
-  
-  if (studentIdCol === -1) {
-    return {};
+
+  const headers = data[0].map(h => String(h || '').toLowerCase().trim());
+  const findCol = (...names) => {
+    const wanted = names.map(name => String(name).toLowerCase().trim());
+    return headers.findIndex(header => wanted.includes(header));
+  };
+
+  const cols = {
+    studentId: findCol('Student ID'),
+    homeRoom: findCol('Home Room Class', 'Homeroom Section'),
+    firstName: findCol('First'),
+    lastName: findCol('Last'),
+    parentId: findCol('Parent ID'),
+    combinedSalutations: findCol('Combined Salutations'),
+    primaryContactName: findCol('Primary Contact: Name'),
+    primaryContactEmail: findCol('Primary Contact: Email'),
+    primaryContactCell: findCol('Primary Contact: Cell Phone'),
+    secondaryContactName: findCol('Secondary Contact: Name'),
+    secondaryContactEmail: findCol('Secondary Contact: Email'),
+    secondaryContactCell: findCol('Secondary Contact: Cell Phone')
+  };
+
+  const requiredColumns = [
+    ['Student ID', cols.studentId],
+    ['Parent ID', cols.parentId],
+    ['First', cols.firstName],
+    ['Last', cols.lastName],
+    ['Home Room Class', cols.homeRoom],
+    ['Combined Salutations', cols.combinedSalutations],
+    ['Primary Contact: Email', cols.primaryContactEmail],
+    ['Secondary Contact: Email', cols.secondaryContactEmail]
+  ];
+  const missingColumns = requiredColumns.filter(([, index]) => index === -1).map(([name]) => name);
+  if (missingColumns.length > 0) {
+    throw new Error('parent db is missing required columns: ' + missingColumns.join(', '));
   }
-  
+
+  const valueAt = (row, index) => index === -1 ? '' : String(row[index] || '').trim();
   const directory = {};
-  
+
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const studentId = String(row[studentIdCol]).trim();
-    
-    if (studentId) {
-      directory[studentId] = {
-        studentId: studentId,
-        firstName: firstNameCol !== -1 ? String(row[firstNameCol]).trim() : '',
-        lastName: lastNameCol !== -1 ? String(row[lastNameCol]).trim() : '',
-        fullName: row[1] || '',
-        grade: gradeCol !== -1 ? String(row[gradeCol]).trim() : '',
-        combinedSalutations: row[salutationColumnIndex] ? String(row[salutationColumnIndex]).trim() : '',
-        primaryContactName: row[primaryContactNameIndex] ? String(row[primaryContactNameIndex]).trim() : '',
-        primaryContactEmail: row[primaryContactCellIndex] ? String(row[primaryContactCellIndex]).trim() : '',
-        primaryContactCell: row[primaryContactEmailIndex] ? String(row[primaryContactEmailIndex]).trim() : '',
-        secondaryContactName: row[secondaryContactNameIndex] ? String(row[secondaryContactNameIndex]).trim() : '',
-        secondaryContactCell: row[secondaryContactCellIndex] ? String(row[secondaryContactCellIndex]).trim() : '',
-        secondaryContactEmail: row[secondaryContactEmailIndex] ? String(row[secondaryContactEmailIndex]).trim() : ''
-      };
-    }
+    const studentId = valueAt(row, cols.studentId);
+    if (!studentId) continue;
+
+    const firstName = valueAt(row, cols.firstName);
+    const lastName = valueAt(row, cols.lastName);
+
+    directory[studentId] = {
+      studentId: studentId,
+      parentId: valueAt(row, cols.parentId),
+      firstName: firstName,
+      lastName: lastName,
+      fullName: [firstName, lastName].filter(Boolean).join(' '),
+      grade: valueAt(row, cols.homeRoom),
+      combinedSalutations: valueAt(row, cols.combinedSalutations),
+      primaryContactName: valueAt(row, cols.primaryContactName),
+      primaryContactEmail: valueAt(row, cols.primaryContactEmail),
+      primaryContactCell: valueAt(row, cols.primaryContactCell),
+      secondaryContactName: valueAt(row, cols.secondaryContactName),
+      secondaryContactCell: valueAt(row, cols.secondaryContactCell),
+      secondaryContactEmail: valueAt(row, cols.secondaryContactEmail)
+    };
   }
-  
+
   return directory;
 }
