@@ -764,7 +764,7 @@
     mode: '',
     allStudents: [],
     filteredStudents: [],
-    selectedStudents: new Set(),
+    selectedStudents: new Map(),
     parentName: '',
     isSearching: false
   };
@@ -807,6 +807,15 @@
   function modeColor()  { return state.mode === 'in' ? 'var(--green)' : 'var(--red)'; }
   function modeLabel()  { return state.mode === 'in' ? 'Check In' : 'Check Out'; }
   function modeStatus() { return state.mode === 'in' ? 'In' : 'Out'; }
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+  function escapeAttr(value) { return escapeHtml(value); }
 
   /* ========================================================================
      4. INIT
@@ -865,8 +874,8 @@
     // Student results + manual entry — event delegation
     el.resultsArea.addEventListener('click', function(e) {
       var row = e.target.closest('.student-row');
-      if (row && row.dataset.studentName) {
-        toggleStudent(row.dataset.studentName);
+      if (row && row.dataset.studentId) {
+        toggleStudent(row.dataset.studentId);
         return;
       }
       var manualBtn = e.target.closest('.manual-entry-btn');
@@ -1030,7 +1039,8 @@
     var html = '';
     for (var i = 0; i < students.length; i++) {
       var student = students[i];
-      var isSelected = state.selectedStudents.has(student.fullName);
+      var key = 'id:' + student.studentId;
+      var isSelected = state.selectedStudents.has(key);
       var hasNickname = student.nickname &&
                         student.nickname.trim() !== '' &&
                         student.nickname !== '-' &&
@@ -1040,32 +1050,35 @@
         ? student.fullName + ' (' + student.nickname + ')'
         : student.fullName;
 
-      var escapedName = student.fullName.replace(/"/g, '&quot;');
-
       html += '<div class="student-row' + (isSelected ? ' selected ' + modeClass() : '') +
-              '" data-student-name="' + escapedName + '">' + displayName + '</div>';
+              '" data-student-id="' + escapeAttr(student.studentId) + '">' +
+              escapeHtml(displayName) + '</div>';
     }
     el.resultsArea.innerHTML = html;
   }
 
-  function toggleStudent(studentName) {
-    if (state.selectedStudents.has(studentName)) {
-      state.selectedStudents.delete(studentName);
+  function toggleStudent(studentId) {
+    var key = 'id:' + studentId;
+    if (state.selectedStudents.has(key)) {
+      state.selectedStudents.delete(key);
     } else {
-      state.selectedStudents.add(studentName);
+      var student = state.allStudents.find(function(item) {
+        return String(item.studentId) === String(studentId);
+      });
+      if (!student) return;
+      state.selectedStudents.set(key, {
+        studentId: String(student.studentId),
+        fullName: student.fullName
+      });
     }
     refreshSelectionUI();
-    if (state.isSearching) {
-      displayStudents(state.filteredStudents);
-    }
+    if (state.isSearching) displayStudents(state.filteredStudents);
   }
 
-  function removeStudent(studentName) {
-    state.selectedStudents.delete(studentName);
+  function removeStudent(selectionKey) {
+    state.selectedStudents.delete(selectionKey);
     refreshSelectionUI();
-    if (state.isSearching) {
-      displayStudents(state.filteredStudents);
-    }
+    if (state.isSearching) displayStudents(state.filteredStudents);
   }
 
   function refreshSelectionUI() {
@@ -1073,14 +1086,18 @@
       el.bottomBar.classList.remove('visible');
       return;
     }
+
     el.bottomBar.classList.add('visible');
-    var names = Array.from(state.selectedStudents);
+    var selections = Array.from(state.selectedStudents.entries());
     var html = '';
-    for (var i = 0; i < names.length; i++) {
-      var escaped = names[i].replace(/"/g, '&quot;');
-      html += '<span class="tag ' + modeClass() + '">' + names[i] +
-              '<button class="tag-x" data-remove="' + escaped + '">&times;</button></span>';
+
+    for (var i = 0; i < selections.length; i++) {
+      var key = selections[i][0];
+      var student = selections[i][1];
+      html += '<span class="tag ' + modeClass() + '">' + escapeHtml(student.fullName) +
+              '<button class="tag-x" data-remove="' + escapeAttr(key) + '">&times;</button></span>';
     }
+
     el.selectedTags.innerHTML = html;
   }
 
@@ -1094,9 +1111,11 @@
       "Enter student's full name",
       function(value) {
         if (value && value.trim()) {
-          state.selectedStudents.add(value.trim());
+          var fullName = value.trim();
+          var key = 'manual:' + fullName.toLowerCase();
+          state.selectedStudents.set(key, { studentId: '', fullName: fullName });
           refreshSelectionUI();
-          showNotification('Added "' + value.trim() + '" manually', 'success');
+          showNotification('Added "' + fullName + '" manually', 'success');
         }
       }
     );
@@ -1143,7 +1162,9 @@
   function goToConfirm() {
     el.confirmActionLabel.textContent = state.mode === 'in' ? 'Checking In:' : 'Checking Out:';
     el.confirmActionLabel.className = 'confirm-action-label ' + modeClass() + '-text';
-    el.confirmNames.textContent = Array.from(state.selectedStudents).join(', ');
+    el.confirmNames.textContent = Array.from(state.selectedStudents.values())
+      .map(function(student) { return student.fullName; })
+      .join(', ');
 
     el.confirmBtn.className = 'confirm-btn ' + modeClass();
     el.confirmBtn.textContent = 'Confirm ' + modeLabel();
@@ -1171,7 +1192,8 @@
     showLoading('Checking ' + modeStatus().toLowerCase() + ' ' + state.selectedStudents.size + ' student(s)...');
 
     var sheetName = getSheetName();
-    var studentNames = Array.from(state.selectedStudents);
+    var selections = Array.from(state.selectedStudents.values());
+    var studentNames = selections.map(function(student) { return student.fullName; });
 
     google.script.run
       .withSuccessHandler(function() {
@@ -1187,7 +1209,7 @@
         el.confirmBtn.disabled = false;
         isSubmitting = false;
       })
-      .logCheckInOutToSheet(sheetName, modeStatus(), state.parentName, studentNames);
+      .logCheckInOutToSheet(sheetName, modeStatus(), state.parentName, selections);
   }
 
   function getSheetName() {
