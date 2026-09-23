@@ -243,7 +243,7 @@ const SpreadsheetManager = {
 
       // I — Bus
       busFormulas.push([
-        `=IF(C${rowNum}="Out",INDEX(S!F:F,MATCH(F${rowNum},S!A:A,0)),"")`
+        `=IF(C${rowNum}="Out",IFERROR(INDEX(\'${CONFIG.STUDENT_DATA_SHEET}\'!H:H,MATCH(F${rowNum},\'${CONFIG.STUDENT_DATA_SHEET}\'!F:F,0)),""),"")`
       ]);
     }
 
