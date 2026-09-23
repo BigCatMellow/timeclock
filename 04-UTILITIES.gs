@@ -302,9 +302,19 @@ function getStudentDirectory_() {
     secondaryContactCell: findCol('Secondary Contact: Cell Phone')
   };
 
-  if (cols.studentId === -1) {
-    console.log('Student ID column not found in parent db');
-    return {};
+  const requiredColumns = [
+    ['Student ID', cols.studentId],
+    ['Parent ID', cols.parentId],
+    ['First', cols.firstName],
+    ['Last', cols.lastName],
+    ['Home Room Class', cols.homeRoom],
+    ['Combined Salutations', cols.combinedSalutations],
+    ['Primary Contact: Email', cols.primaryContactEmail],
+    ['Secondary Contact: Email', cols.secondaryContactEmail]
+  ];
+  const missingColumns = requiredColumns.filter(([, index]) => index === -1).map(([name]) => name);
+  if (missingColumns.length > 0) {
+    throw new Error('parent db is missing required columns: ' + missingColumns.join(', '));
   }
 
   const valueAt = (row, index) => index === -1 ? '' : String(row[index] || '').trim();
