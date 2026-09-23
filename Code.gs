@@ -247,7 +247,7 @@ const SpreadsheetManager = {
 
         // G — Returning
         returningFormulas.push([
-          `=IF(AND(C${rowNum}="In",COUNTIFS($C$1:C${rowNum - 1},"Out",$A$1:A${rowNum - 1},A${rowNum},$F$1:F${rowNum - 1},F${rowNum})>0),"x","")`
+          `=IF(AND(C${rowNum}="In",COUNTIFS($C$1:C${rowNum - 1},"Out",$A$1:A${rowNum - 1},A${rowNum},$F$1:F${rowNum - 1},F${rowNum},$D$1:D${rowNum - 1},D${rowNum})>0),"x","")`
         ]);
 
         // I — Bus
