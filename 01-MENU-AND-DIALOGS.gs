@@ -319,7 +319,7 @@ function showCalendarDatePicker() {
       <div class="form-row">
         <div class="form-group">
           <label class="form-label" for="startTime">Start Time</label>
-          <input type="time" id="startTime" class="form-input" value="08:00" required>
+          <input type="time" id="startTime" class="form-input" value="08:20" required>
           <div class="time-hint">Earliest time to include</div>
         </div>
         
@@ -1736,7 +1736,7 @@ function showEmailTrackerManager() {
 function showNeverSendManager() {
   const trackerSheet = getEmailStatusTracker();
   const data = trackerSheet.getDataRange().getValues();
-  
+
   if (data.length <= 1) {
     SpreadsheetApp.getUi().alert(
       'No Data',
@@ -1745,46 +1745,60 @@ function showNeverSendManager() {
     );
     return;
   }
-  
-  const neverSendStudents = new Map();
-  
-  for (let i = 1; i < data.length; i++) {
-    const [studentId, studentName, reportRange, dateGenerated, emailSent, dateSent, override, neverSend, notes] = data[i];
-    
-    if (neverSend === true) {
-      neverSendStudents.set(studentId, {
-        id: studentId,
-        name: studentName
-      });
-    }
+
+  const latestStatus = new Map();
+
+  // Newest row wins for each student.
+  for (let i = data.length - 1; i >= 1; i--) {
+    const studentId = data[i][EMAIL_TRACKER.STUDENT_ID];
+    if (!studentId || latestStatus.has(String(studentId))) continue;
+
+    latestStatus.set(String(studentId), {
+      id: studentId,
+      name: data[i][EMAIL_TRACKER.STUDENT_NAME],
+      neverSend: data[i][EMAIL_TRACKER.NEVER_SEND] === true
+    });
   }
-  
+
+  const neverSendStudents = Array.from(latestStatus.values())
+    .filter(student => student.neverSend);
+
   let message = 'STUDENTS MARKED "NEVER SEND"\n\n';
-  
-  if (neverSendStudents.size === 0) {
+
+  if (neverSendStudents.length === 0) {
     message += 'No students are currently marked as "Never Send".\n\n';
   } else {
-    message += `Total: ${neverSendStudents.size} student(s)\n\n`;
-    Array.from(neverSendStudents.values()).forEach(student => {
+    message += `Total: ${neverSendStudents.length} student(s)\n\n`;
+    neverSendStudents.forEach(student => {
       message += `• ${student.name} (${student.id})\n`;
     });
     message += '\n';
   }
-  
+
   message += 'To add or remove students from the "Never Send" list:\n';
   message += '1. Open the Email Status Tracker sheet\n';
-  message += '2. Find the student\'s row\n';
-  message += '3. Check the "Never Send" checkbox to prevent emails\n';
-  message += '4. Uncheck to allow emails again\n\n';
-  message += 'Note: The most recent "Never Send" status for each student is used.';
-  
+  message += '2. Find the student\'s most recent row\n';
+  message += '3. Check "Never Send" to prevent emails\n';
+  message += '4. Uncheck it to allow emails again\n\n';
+  message += 'The most recent tracker row for each student is authoritative.';
+
   SpreadsheetApp.getUi().alert('Never Send List', message, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 
 function openManualTimeEntry() {
-  const url =
-    'https://script.google.com/macros/s/AKfycbyd--fuG05pskAiMZdKiFDjdkhpE0AapJy-2lpxzoc1/dev?view=manual';
+  const baseUrl = ScriptApp.getService().getUrl();
+
+  if (!baseUrl) {
+    SpreadsheetApp.getUi().alert(
+      'Manual Time Entry',
+      'No deployed web-app URL is available. Deploy the Apps Script project as a web app first.',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return;
+  }
+
+  const url = baseUrl + '?view=manual';
 
   const html = HtmlService.createHtmlOutput(`
     <!DOCTYPE html>
