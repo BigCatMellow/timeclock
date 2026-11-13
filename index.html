@@ -821,8 +821,9 @@
      4. INIT
      ======================================================================== */
   function init() {
-    loadStudents().then(function() {
-      setupEventListeners();
+    setupEventListeners();
+    loadStudents().catch(function(error) {
+      console.error('Initial student loading failed:', error);
     });
   }
 

@@ -140,6 +140,7 @@ const CacheManager = {
     try {
       this.cache.removeAll([
         'all_students',
+        'all_students_v2',
         `logo_${CONFIG.LOGO_FILE_ID}`
       ]);
     } catch (error) {
@@ -230,35 +231,40 @@ const SpreadsheetManager = {
     const lock = LockService.getScriptLock();
 
     try {
-      lock.waitLock(10000);
+      lock.waitLock(30000);
 
       const startRow = sheet.getLastRow() + 1;
       const numRows = data.length;
       const numCols = data[0].length;
 
-      // Rows are written as A:F, including the authoritative Student ID.
-      sheet.getRange(startRow, 1, numRows, numCols).setValues(data);
-
-      const returningFormulas = [];
-      const busValues = [];
-
-      for (let i = 0; i < numRows; i++) {
-        const rowNum = startRow + i;
-
-        // G — Returning
-        returningFormulas.push([
-          `=IF(AND(C${rowNum}="In",COUNTIFS($C$1:C${rowNum - 1},"Out",$A$1:A${rowNum - 1},A${rowNum},$F$1:F${rowNum - 1},F${rowNum},$D$1:D${rowNum - 1},D${rowNum})>0),"x","")`
-        ]);
-
-        // I — Bus. Snapshot the current route rather than relying on a fragile
-        // cross-sheet column formula.
-        busValues.push([
-          data[i][2] === 'Out' && busRoutes && busRoutes[i] ? busRoutes[i] : ''
-        ]);
+      if (numCols !== 6 || data.some(row => !Array.isArray(row) || row.length !== 6)) {
+        throw new AppError('Expected six columns per entry', ErrorCodes.INVALID_DATA);
       }
 
-      sheet.getRange(startRow, 7, numRows, 1).setFormulas(returningFormulas);
-      sheet.getRange(startRow, 9, numRows, 1).setValues(busValues);
+      // Expand the monthly sheet before its allocated rows are exhausted.
+      const requiredLastRow = startRow + numRows - 1;
+      const maxRows = sheet.getMaxRows();
+      if (requiredLastRow > maxRows) {
+        sheet.insertRowsAfter(
+          maxRows,
+          Math.max(100, requiredLastRow - maxRows)
+        );
+      }
+
+      // A:I includes the returning formula (G), empty Logged cell (H), and bus route (I).
+      // One range update avoids the three-step partial-write failure mode.
+      const values = data.map((row, index) => {
+        const rowNum = startRow + index;
+        const returningFormula =
+          `=IF(AND(C${rowNum}="In",COUNTIFS($C$1:C${rowNum - 1},"Out",$A$1:A${rowNum - 1},A${rowNum},$F$1:F${rowNum - 1},F${rowNum},$D$1:D${rowNum - 1},D${rowNum})>0),"x","")`;
+        const busRoute = row[2] === 'Out' && busRoutes && busRoutes[index]
+          ? busRoutes[index]
+          : '';
+
+        return [...row, returningFormula, '', busRoute];
+      });
+
+      sheet.getRange(startRow, 1, numRows, CONFIG.HEADERS.length).setValues(values);
       SpreadsheetApp.flush();
 
       Logger.info('Batch write successful', {
@@ -270,8 +276,10 @@ const SpreadsheetManager = {
 
     } catch (error) {
       Logger.error('Batch write failed', {
-        error,
-        dataLength: data.length
+        message: error.message,
+        stack: error.stack,
+        dataLength: data.length,
+        sheetName: sheet.getName()
       });
 
       throw new AppError(
@@ -451,7 +459,7 @@ function resolveStudentSelections_(selections) {
 }
 
 function getAllStudents() {
-  const cacheKey = 'all_students';
+  const cacheKey = 'all_students_v2';
 
   try {
     const cached = CacheManager.get(cacheKey);
@@ -460,7 +468,15 @@ function getAllStudents() {
       return cached;
     }
 
+    // Both UI pages require only these five fields, not the full roster.
     const students = getStudentRoster_(false)
+      .map(student => ({
+        firstName: student.firstName,
+        nickname: student.nickname,
+        lastName: student.lastName,
+        fullName: student.fullName,
+        studentId: student.studentId
+      }))
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
 
     Logger.info('Students loaded successfully', { count: students.length });
@@ -473,7 +489,6 @@ function getAllStudents() {
     throw new AppError('Unable to load student list', ErrorCodes.UNKNOWN_ERROR);
   }
 }
-
 function logCheckInOutToSheet(monthYear, status, parentName, studentSelections) {
   try {
     const validatedSheetName = Validator.validateSheetName(monthYear);
